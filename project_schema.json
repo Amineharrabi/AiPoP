@@ -1,0 +1,286 @@
+{
+  "project": "AiPoP",
+  "generated_at": "2025-11-05T00:00:00Z",
+  "summary": "Machine-assisted project schema describing data files, scripts, interactions, and missing items for reaching final goals (Hype/Reality indices, bubble detection, Streamlit dashboard, backtesting and deployment).",
+  "data_files": [
+    {
+      "path": "data/warehouse/ai_bubble.duckdb",
+      "exists": false,
+      "description": "DuckDB warehouse file holding star schema tables: dim_time, dim_entity, dim_source, fact_hype_signals, fact_reality_signals, fact_indices, bubble_alerts, etc. Created by scripts/setup_duckdb.py and populated by load_warehouse.py and ingest scripts."
+    },
+    {
+      "path": "data/staging/reddit_clean.parquet",
+      "exists": false,
+      "description": "Staging cleaned Reddit data produced by scripts/ingest_reddit.py (parquet)."
+    },
+    {
+      "path": "data/staging/news_clean.parquet",
+      "exists": false,
+      "description": "Staging cleaned NewsAPI articles produced by scripts/ingest_news.py (parquet)."
+    },
+    {
+      "path": "data/staging/yfinance_clean.parquet",
+      "exists": false,
+      "description": "Staging stock price data expected from ingest_yfinance.py (parquet)."
+    },
+    {
+      "path": "data/staging/huggingface_clean.parquet",
+      "exists": false,
+      "description": "Staging HuggingFace model metadata produced by scripts/ingest_github_hf.py (parquet)."
+    },
+    {
+      "path": "data/staging/github_clean.parquet",
+      "exists": false,
+      "description": "Staging GitHub repo metrics produced by scripts/ingest_github_hf.py (parquet)."
+    },
+    {
+      "path": "data/staging/arxiv_clean.parquet",
+      "exists": false,
+      "description": "Staging arXiv paper metadata produced by scripts/ingest_arxiv.py (parquet)."
+    },
+    {
+      "path": "data/raw/reddit/*.json",
+      "exists": false,
+      "description": "Raw JSON per-subreddit saved by ingest_reddit.py."
+    },
+    {
+      "path": "data/raw/news/*.json",
+      "exists": false,
+      "description": "Raw NewsAPI JSON files saved by ingest_news.py."
+    },
+    {
+      "path": "data/raw/github_hf/github_repos.json",
+      "exists": false,
+      "description": "Raw GitHub repo metadata saved by ingest_github_hf.py."
+    },
+    {
+      "path": "data/raw/github_hf/huggingface_models.json",
+      "exists": false,
+      "description": "Raw HuggingFace model metadata saved by ingest_github_hf.py."
+    },
+    {
+      "path": "data/historical/*.parquet",
+      "exists": false,
+      "description": "Historical time-series and text content saved/managed by scripts/data_manager.py (e.g. price_{TICKER}_1day.parquet, sec_{TICKER}_full.parquet)."
+    },
+    {
+      "path": "scripts/data/templates/*.parquet",
+      "exists": false,
+      "description": "Historical bubble template patterns (dotcom, housing, crypto) referenced by scripts/detect_bubble.py."
+    }
+  ],
+  "scripts": [
+    {
+      "path": "scripts/setup_duckdb.py",
+      "purpose": "Create DuckDB schema (star schema) and base tables.",
+      "inputs": ["none (creates database path if missing)"],
+      "outputs": ["data/warehouse/ai_bubble.duckdb"],
+      "key_tables": ["dim_time", "dim_entity", "dim_source", "fact_hype_signals", "fact_reality_signals", "fact_indices"],
+      "dependencies": ["duckdb", "os"],
+      "notes": "Idempotent table creation script. Should be run before loading or ingesting data."
+    },
+    {
+      "path": "scripts/load_warehouse.py",
+      "purpose": "Load staged Parquet files from data/staging into the DuckDB warehouse and populate dimension and fact tables.",
+      "inputs": [
+        "data/staging/yfinance_clean.parquet",
+        "data/staging/reddit_clean.parquet",
+        "data/staging/news_clean.parquet",
+        "data/staging/sec_clean.parquet",
+        "data/staging/arxiv_clean.parquet",
+        "data/staging/github_clean.parquet",
+        "data/staging/huggingface_clean.parquet"
+      ],
+  "outputs": ["dim_time", "dim_entity", "dim_source", "fact_hype_signals", "fact_reality_signals"],
+      "key_functions": ["populates dim_time by unioning dates, populates dim_entity by unioning entities across sources, inserts hype and reality facts with joins to dims"],
+      "dependencies": ["duckdb", "pandas"],
+      "notes": "Relies on consistent parquet file schemas produced by ingest scripts. Uses parquet_scan to avoid reading entire files into Python memory."
+    },
+    {
+      "path": "scripts/ingest_yfinance.py",
+      "purpose": "Incrementally fetch stock price data (yfinance) for tracked tickers, update historical files via DataManager, and insert facts into DuckDB.",
+      "inputs": ["yfinance API via yfinance library", "DataManager state for last update timestamps"],
+      "outputs": ["data/historical/price_{TICKER}_{timeframe}.parquet", "fact_reality_signals updates in DuckDB"],
+      "key_functions": ["fetch_incremental_data", "update_price_data via DataManager", "update_warehouse (write fact_reality_signals)", "get_entity_id from dim_entity"],
+      "dependencies": ["yfinance", "pandas", "duckdb", "pytz"],
+      "notes": "Writes time_id as unix seconds in facts; requires entities to exist in dim_entity. Calls DataManager for historical resampling and storage."
+    },
+    {
+      "path": "scripts/ingest_sec.py",
+      "purpose": "Incrementally query SEC filings via sec-api, extract AI-related mentions and financial metrics, run sentiment analysis, write hype and reality signals to DuckDB.",
+      "inputs": ["SEC_API_KEY env var", "SEC API responses via sec_api.QueryApi/RenderApi"],
+      "outputs": ["data/historical/sec_{TICKER}_full.parquet (DataManager)", "fact_hype_signals and fact_reality_signals updates in DuckDB"],
+      "key_functions": ["fetch_incremental_filings", "extract_ai_mentions", "extract_market_metrics", "update_warehouse"],
+      "dependencies": ["sec_api", "vaderSentiment", "pandas", "duckdb", "python-dotenv"],
+      "notes": "Filters filings for AI keywords, extracts revenues (regex) and sentiment. Requires SEC_API_KEY in environment and API rate handling."
+    },
+    {
+      "path": "scripts/ingest_reddit.py",
+      "purpose": "Scrape Reddit subreddits using PRAW, compute sentiment, save raw JSON and staging Parquet file for Reddit posts.",
+      "inputs": ["REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET (+ optional username/password)"],
+      "outputs": ["data/raw/reddit/<subreddit>.json", "data/staging/reddit_clean.parquet"],
+      "key_functions": ["collect posts, compute vader sentiment, write raw JSON and parquet"],
+      "dependencies": ["praw", "vaderSentiment", "pandas", "python-dotenv"],
+      "notes": "Exits with helpful instructions if Reddit API credentials are missing. Uses top() posts filtering (limit 500)."
+    },
+    {
+      "path": "scripts/ingest_news.py",
+      "purpose": "Query NewsAPI for company + AI keywords, compute sentiment, save raw JSON and staging parquet file.",
+      "inputs": ["NEWS_API_KEY env var"],
+      "outputs": ["data/raw/news/news_<YYYYMMDD>.json", "data/staging/news_clean.parquet"],
+      "key_functions": ["get_news_articles via NewsAPI, compute sentiment via vaderSentiment, write parquet"],
+      "dependencies": ["requests", "vaderSentiment", "pandas", "python-dotenv"],
+      "notes": "Free-tier NewsAPI has date range limits; script respects rate limits."
+    },
+    {
+      "path": "scripts/ingest_github_hf.py",
+      "purpose": "Collect GitHub repo metrics for curated list and discover & fetch HuggingFace model metadata; save raw JSON and staging parquet files for GitHub and HuggingFace data.",
+      "inputs": ["GITHUB_TOKEN, HF_ACCESS_TOKEN env vars"],
+      "outputs": ["data/raw/github_hf/github_repos.json", "data/raw/github_hf/huggingface_models.json", "data/staging/github_clean.parquet", "data/staging/huggingface_clean.parquet"],
+      "key_functions": ["get_github_repo_data (repo metrics, commits, releases)", "discover_ai_models (HF discovery)", "get_huggingface_model_data (model details)"],
+      "dependencies": ["requests", "pandas", "python-dotenv"],
+      "notes": "Discovers models by pipeline tags and recency; may collect up to capped number of models (200). Requires API tokens."
+    },
+    {
+      "path": "scripts/ingest_arxiv.py",
+      "purpose": "Query arXiv for AI-related papers, compute innovation metrics and technical density, save raw JSON and staging parquet.",
+      "inputs": ["arxiv queries via arxiv python package"],
+      "outputs": ["data/raw/arxiv/*.json", "data/staging/arxiv_clean.parquet"],
+      "key_functions": ["fetch_papers", "compute innovation_score and technical_complexity"],
+      "dependencies": ["arxiv", "pandas"],
+      "notes": "Filters papers from 2020 onwards and computes several boolean innovation signals aggregated into a score."
+    },
+    {
+      "path": "scripts/data_manager.py",
+      "purpose": "Local historical data management and incremental-state tracking (last update timestamps), plus utilities to load/save historical parquet timeseries and text corpora.",
+      "inputs": ["none (manages internal state file data/historical/latest_state.json and historical parquet files)"],
+      "outputs": ["data/historical/*.parquet", "data/historical/latest_state.json"],
+      "key_functions": ["get_last_update, update_last_update, save/load historical parquet files, update_price_data, update_text_data"],
+      "dependencies": ["pandas", "json", "pytz"],
+      "notes": "Centralized place for incremental ingestion coordination; used by ingest scripts to avoid re-downloading entire datasets."
+    },
+    {
+      "path": "scripts/compute_features.py",
+      "purpose": "Feature engineering pipeline: aggregate hype and reality signals into per-entity daily features, compute rolling stats, momentum, volatility, cross-entity correlations, composite hype and reality scores, and derive combined features (hype_reality_gap, volatility_adjusted_gap, bubble_risk_level).",
+      "inputs": ["DuckDB tables fact_hype_signals, fact_reality_signals, dim_time, dim_entity"],
+      "outputs": ["tables: hype_features, reality_features, combined_features (in DuckDB)"],
+      "key_functions": ["compute_hype_features, compute_reality_features, compute_combined_features, validate_features"],
+      "dependencies": ["duckdb", "pandas"],
+      "notes": "Script includes technical indicators (RSI, moving averages), volatility measures, and risk-level heuristics. Should be run prior to compute_indices.py."
+    },
+    {
+      "path": "dashboard/app.py",
+      "purpose": "Streamlit dashboard skeleton to visualize global Hype/Reality indices and recent bubble alerts.",
+      "inputs": ["data/warehouse/ai_bubble.duckdb"],
+      "outputs": ["interactive UI"],
+      "dependencies": ["streamlit", "duckdb", "pandas"],
+      "notes": "Minimal app showing line chart for indices and a table of recent alerts. Run with `streamlit run dashboard/app.py`."
+    },
+    {
+      "path": "tests/",
+      "purpose": "Pytest unit tests for core scripts presence and minimal API checks.",
+      "inputs": ["none"],
+      "outputs": ["pytest results"],
+      "dependencies": ["pytest"],
+      "notes": "Simple import and API-check tests that don't require network access or large data files."
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "purpose": "CI workflow to run tests on push/PR.",
+      "inputs": ["requirements.txt"],
+      "outputs": ["pytest results"],
+      "dependencies": ["actions/checkout", "actions/setup-python"],
+      "notes": "Installs requirements and additional test dependencies, then runs pytest."
+    },
+    {
+      "path": "scripts/compute_indices.py",
+      "purpose": "Compute cross-entity HypeIndex and RealityIndex from combined_features and produce bubble_metrics (rolling stats, divergence, normalized scores).",
+      "inputs": ["combined_features table in DuckDB"],
+      "outputs": ["tables: hype_index, reality_index, bubble_metrics, entity_bubble_metrics (in DuckDB)"],
+      "key_functions": ["compute_hype_index, compute_reality_index, compute_bubble_metrics, compute_entity_bubble_metrics"],
+      "dependencies": ["duckdb", "pandas", "numpy"],
+      "notes": "Weights and normalization are applied at entity level and aggregated. compute_indices.py expects combined_features to exist and will fail otherwise. Also creates per-entity `entity_bubble_metrics` used by detect_bubble.py for entity-level detection."
+    },
+
+    {
+      "path": "scripts/detect_bubble.py",
+      "purpose": "Advanced bubble detection: uses divergence, acceleration, pattern-matching (DTW vs templates), changepoint detection (ruptures), anomaly models (IsolationForest, OneClassSVM), and Granger causality tests to create alerts saved back to DuckDB.",
+      "inputs": ["entity_bubble_metrics (preferred), bubble_metrics (fallback), dim_entity, historical templates (if present)"],
+      "outputs": ["bubble_alerts table in DuckDB (bubble alerts)"],
+      "key_functions": ["compute_divergence, compute_acceleration, compute_pattern_match (DTW), detect_changepoints, compute_granger_causality, generate_alerts, save_alerts, detect_bubbles"],
+      "dependencies": ["numpy", "pandas", "duckdb", "scikit-learn", "dtaidistance (DTW)", "ruptures", "statsmodels"],
+      "notes": "Prefers per-entity `entity_bubble_metrics` for entity-level detection; falls back to global `bubble_metrics` if entity-level table is missing. Templates folder expected at scripts/data/templates."
+    },
+
+    {
+      "path": "scripts/update_service.py",
+      "purpose": "(Utility) likely intended for orchestrating periodic updates/services (not fully documented), check content in file for exact behavior.",
+      "inputs": ["varies"],
+      "outputs": ["varies"],
+      "dependencies": ["varies"],
+      "notes": "Quick scan found the file present in repository but review needed to document exact orchestration role."
+    }
+  ],
+  "architecture_overview": {
+    "warehouse": "DuckDB star schema at data/warehouse/ai_bubble.duckdb. Dimensions: dim_time, dim_entity, dim_source. Facts: fact_hype_signals (social/news/research activity + sentiment), fact_reality_signals (stock, downloads, stars). Indices and metrics: hype_index, reality_index, bubble_metrics, bubble_alerts.",
+    "staging": "data/staging contains cleaned parquet artifacts produced by ingest scripts. These are the canonical inputs for load_warehouse.py.",
+    "raw": "data/raw contains raw json/ndjson for each source (reddit, news, github_hf, arxiv, sec).",
+    "historical": "data/historical used by DataManager to store resampled timeseries and text corpora; also stores latest_state.json for last-update tracking.",
+    "templates": "scripts/data/templates expected to hold historical bubble pattern parquet files for DTW comparisons.",
+    "deployment_notes": "HuggingFace Spaces has ephemeral storage; DataManager and incremental ingestion should push artifacts to persistent storage (e.g. S3) or recreate on startup. Environment variables required for APIs: NEWS_API_KEY, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, GITHUB_TOKEN, HF_ACCESS_TOKEN, SEC_API_KEY, etc."
+  },
+  "environment_requirements": {
+    "python_version": "3.9+ recommended",
+    "requirements_file": "requirements.txt (exists in repo)",
+    "key_packages": [
+      "duckdb",
+      "pandas",
+      "yfinance",
+      "praw",
+      "requests",
+      "vaderSentiment",
+      "sec_api",
+      "scikit-learn",
+      "dtaidistance",
+      "ruptures",
+      "statsmodels",
+      "arxiv",
+      "python-dotenv"
+    ],
+    "env_vars": [
+      "NEWS_API_KEY",
+      "REDDIT_CLIENT_ID",
+      "REDDIT_CLIENT_SECRET",
+      "GITHUB_TOKEN",
+      "HF_ACCESS_TOKEN",
+      "SEC_API_KEY"
+    ]
+  },
+  "missing_items_and_recommendations": {
+    "missing_data_files": [
+      "No raw/staging/warehouse files are present in the repository (data folder contents are referenced but not checked in). Either generate them via the ingest scripts or provide representative sample data/fixtures for testing.",
+      "Historical bubble template parquet files referenced by detect_bubble.py are missing (scripts/data/templates/*.parquet). Provide templates or disable template-based matching until available."
+    ],
+    "missing_features_to_reach_final_goal": [
+      "Streamlit dashboard (scripts/dashboard/app.py or similar) — currently not implemented. Required views: index plots, alerts, entity selector, contribution chart, backtest view.",
+      "Backtesting harness to evaluate bubble detection signals against known historical events — not present.",
+      "Automated tests (unit + small integration) for ingest, compute_features, compute_indices, detect_bubble to guard regressions.",
+      "CI workflow and reproducible environment definitions (e.g., GitHub Actions workflow, pinned requirements, or environment.yml).",
+      "Persistent storage integration for HuggingFace Spaces or other ephemeral environments (S3, GCS, or SQLite/duckdb checkpointing on startup) to avoid data loss on restarts.",
+      "Monitoring/alerting hook (Slack/email/webhook) to push bubble_alerts to users — current script saves alerts to DuckDB only.",
+      "Performance tuning: large-scale DTW and rupture operations are expensive; consider pre-aggregating or using lower-frequency signals for global detection and high-frequency only per-entity as needed.",
+      "Data schema validation step (e.g., Great Expectations or simple asserts) in ingest scripts to ensure staging parquet schemas match load_warehouse expectations.",
+      "Explicit migration/upsert logic for DuckDB load operations (some insert queries assume deduplication but may need conflict-handling for upserts)."
+    ],
+    "next_steps": [
+      "1) Run scripts/setup_duckdb.py to create the schema locally.",
+      "2) Provide API keys and run each ingest script once to populate data/staging and data/raw.",
+      "3) Run scripts/load_warehouse.py to populate DuckDB dims/facts.",
+      "4) Run scripts/compute_features.py to produce combined_features.",
+      "5) Run scripts/compute_indices.py to create bubble_metrics.",
+      "6) Run scripts/detect_bubble.py to produce bubble_alerts.",
+      "7) Implement and point a Streamlit dashboard at data/warehouse/ai_bubble.duckdb to visualize indices and alerts.",
+      "8) Add automated tests and CI, and optionally set up persistent object storage for larger datasets and for spaces deployment."
+    ]
+  }
+}

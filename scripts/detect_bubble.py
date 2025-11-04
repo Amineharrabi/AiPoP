@@ -1,0 +1,412 @@
+import os
+import logging
+import numpy as np
+import pandas as pd
+from datetime import datetime, timedelta
+import pytz
+from typing import List, Dict, Tuple, Optional
+import duckdb
+from sklearn.preprocessing import RobustScaler
+from sklearn.ensemble import IsolationForest
+from sklearn.svm import OneClassSVM
+from scipy.stats import zscore
+from dtaidistance import dtw
+from ruptures import Binseg
+import statsmodels.api as sm
+from dataclasses import dataclass
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+@dataclass
+class BubbleAlert:
+    level: str  # 'watch', 'warning', 'critical'
+    timestamp: datetime
+    entity_id: int
+    divergence_score: float
+    acceleration_score: float
+    pattern_score: float
+    confidence: float
+    contributing_factors: Dict[str, float]
+
+class BubbleDetector:
+    def __init__(self):
+        self.warehouse_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            'data', 'warehouse', 'ai_bubble.duckdb'
+        )
+        
+        # Model parameters
+        self.lookback_window = 90  # days
+        self.min_samples = 30
+        self.contamination = 0.05
+        
+        # Alert thresholds
+        self.watch_threshold = 1.5
+        self.warning_threshold = 2.5
+        self.critical_threshold = 3.0
+        
+        # Bubble score weights
+        self.alpha = 0.5  # divergence weight
+        self.beta = 0.3   # acceleration weight
+        self.gamma = 0.2  # pattern match weight
+        
+        # Historical bubble templates
+        self.templates = self.load_bubble_templates()
+        
+        # Initialize detection models
+        self.isolation_forest = IsolationForest(
+            contamination=self.contamination,
+            random_state=42
+        )
+        
+        self.one_class_svm = OneClassSVM(
+            nu=self.contamination,
+            kernel='rbf'
+        )
+
+    def load_bubble_templates(self) -> Dict[str, pd.DataFrame]:
+        """Load historical bubble templates"""
+        templates = {}
+        template_path = os.path.join(
+            os.path.dirname(__file__), 
+            'data', 
+            'templates'
+        )
+        
+        # Load each template file
+        for bubble in ['dotcom', 'housing', 'crypto']:
+            try:
+                path = os.path.join(template_path, f'{bubble}_bubble.parquet')
+                if os.path.exists(path):
+                    templates[bubble] = pd.read_parquet(path)
+            except Exception as e:
+                logger.warning(f"Could not load template for {bubble}: {str(e)}")
+                
+        return templates
+
+    def compute_divergence(self, hype: pd.Series, reality: pd.Series) -> pd.Series:
+        """Compute normalized divergence between hype and reality"""
+        # Normalize using robust scaling
+        scaler = RobustScaler()
+        hype_norm = scaler.fit_transform(hype.values.reshape(-1, 1)).flatten()
+        reality_norm = scaler.fit_transform(reality.values.reshape(-1, 1)).flatten()
+        
+        # Compute divergence
+        divergence = pd.Series(
+            hype_norm - reality_norm,
+            index=hype.index
+        )
+        
+        return divergence
+
+    def compute_acceleration(self, divergence: pd.Series) -> pd.Series:
+        """Compute acceleration (second derivative) of divergence"""
+        # First derivative (velocity)
+        velocity = divergence.diff()
+        
+        # Second derivative (acceleration)
+        acceleration = velocity.diff()
+        
+        # Apply EWMA smoothing
+        acceleration = acceleration.ewm(span=7).mean()
+        
+        return acceleration
+
+    def compute_pattern_match(self, 
+                            current_pattern: pd.Series,
+                            normalize: bool = True) -> float:
+        """Compute DTW distance to historical bubble patterns"""
+        if normalize:
+            current = (current_pattern - current_pattern.mean()) / current_pattern.std()
+        else:
+            current = current_pattern
+            
+        distances = []
+        for name, template in self.templates.items():
+            try:
+                # Normalize template
+                template_norm = (template - template.mean()) / template.std()
+                
+                # Compute DTW distance
+                distance = dtw.distance(
+                    current.values,
+                    template_norm.values
+                )
+                distances.append(distance)
+            except Exception as e:
+                logger.warning(f"Error computing DTW for {name}: {str(e)}")
+                
+        if distances:
+            # Convert min distance to similarity score (0-1)
+            min_dist = min(distances)
+            return 1 / (1 + min_dist)
+        return 0.0
+
+    def detect_changepoints(self, series: pd.Series) -> List[int]:
+        """Detect significant changes in the time series"""
+        # Use binary segmentation for change point detection
+        model = Binseg(model="l2").fit(series.values)
+        
+        # Find optimal number of change points
+        changes = model.predict(n_bkps=5)
+        
+        return changes
+
+    def compute_granger_causality(self, 
+                                leading_indicators: pd.DataFrame,
+                                target: pd.Series,
+                                max_lag: int = 5) -> Dict[str, float]:
+        """Compute Granger causality between indicators and target"""
+        results = {}
+        
+        for col in leading_indicators.columns:
+            try:
+                # Prepare data
+                data = pd.DataFrame({
+                    'y': target,
+                    'x': leading_indicators[col]
+                }).dropna()
+                
+                # Test Granger causality
+                gc_res = sm.tsa.stattools.grangercausalitytests(
+                    data,
+                    maxlag=max_lag,
+                    verbose=False
+                )
+                
+                # Get minimum p-value across lags
+                min_p_value = min(
+                    gc_res[lag][0]['ssr_chi2test'][1]
+                    for lag in range(1, max_lag + 1)
+                )
+                
+                results[col] = 1 - min_p_value  # Convert to causality score
+                
+            except Exception as e:
+                logger.warning(f"Error in Granger causality for {col}: {str(e)}")
+                
+        return results
+
+    def generate_alerts(self, 
+                       entity_id: int,
+                       divergence: pd.Series,
+                       acceleration: pd.Series,
+                       pattern_score: float) -> List[BubbleAlert]:
+        """Generate multi-tier alerts based on detection results"""
+        alerts = []
+        
+        # Compute z-scores
+        div_z = zscore(divergence)
+        acc_z = zscore(acceleration)
+        
+        for timestamp, div_score, acc_score in zip(
+            divergence.index, div_z, acc_z
+        ):
+            # Determine alert level
+            if div_score > self.critical_threshold and pattern_score > 0.8:
+                level = 'critical'
+            elif div_score > self.warning_threshold and pattern_score > 0.6:
+                level = 'warning'
+            elif div_score > self.watch_threshold or acc_score > 2.0:
+                level = 'watch'
+            else:
+                continue
+                
+            # Create alert with contributing factors
+            alert = BubbleAlert(
+                level=level,
+                timestamp=timestamp,
+                entity_id=entity_id,
+                divergence_score=div_score,
+                acceleration_score=acc_score,
+                pattern_score=pattern_score,
+                confidence=self.compute_confidence(div_score, acc_score, pattern_score),
+                contributing_factors={
+                    'divergence': div_score,
+                    'acceleration': acc_score,
+                    'pattern_similarity': pattern_score
+                }
+            )
+            alerts.append(alert)
+            
+        return alerts
+
+    def compute_confidence(self,
+                         divergence_score: float,
+                         acceleration_score: float,
+                         pattern_score: float) -> float:
+        """Compute confidence score for bubble detection"""
+        # Weighted combination of signals
+        confidence = (
+            self.alpha * abs(divergence_score) +
+            self.beta * abs(acceleration_score) +
+            self.gamma * pattern_score
+        )
+        
+        # Normalize to 0-1 range
+        confidence = 1 / (1 + np.exp(-confidence + 5))  # Sigmoid transformation
+        
+        return confidence
+
+    def save_alerts(self, alerts: List[BubbleAlert]):
+        """Save alerts to DuckDB warehouse"""
+        try:
+            conn = duckdb.connect(self.warehouse_path)
+            
+            # Convert alerts to DataFrame
+            alerts_df = pd.DataFrame([
+                {
+                    'timestamp': alert.timestamp,
+                    'entity_id': alert.entity_id,
+                    'alert_level': alert.level,
+                    'divergence_score': alert.divergence_score,
+                    'acceleration_score': alert.acceleration_score,
+                    'pattern_score': alert.pattern_score,
+                    'confidence': alert.confidence,
+                    'contributing_factors': str(alert.contributing_factors)
+                }
+                for alert in alerts
+            ])
+            
+            # Update alerts table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS bubble_alerts (
+                    timestamp TIMESTAMP,
+                    entity_id INTEGER,
+                    alert_level VARCHAR,
+                    divergence_score DOUBLE,
+                    acceleration_score DOUBLE,
+                    pattern_score DOUBLE,
+                    confidence DOUBLE,
+                    contributing_factors VARCHAR
+                )
+            """)
+            
+            conn.execute("""
+                INSERT INTO bubble_alerts 
+                SELECT * FROM alerts_df
+            """)
+            
+            conn.commit()
+            logger.info(f"Saved {len(alerts)} alerts to warehouse")
+            
+        except Exception as e:
+            logger.error(f"Error saving alerts: {str(e)}")
+            raise
+        finally:
+            conn.close()
+
+    def detect_bubbles(self, lookback_days: int = 90):
+        """Main function to detect bubbles across all entities"""
+        try:
+            conn = duckdb.connect(self.warehouse_path)
+            
+            # Get recent data for all entities
+            query = f"""
+                WITH recent_data AS (
+                    -- Prefer per-entity metrics if available
+            SELECT * FROM (
+                WITH recent_entity_data AS (
+                    SELECT
+                        eb.time_id,
+                        eb.date,
+                        eb.entity_id,
+                        eb.entity_name,
+                        eb.hype_intensity_score as hype_index,
+                        eb.reality_strength_score as reality_index,
+                        eb.hype_reality_gap,
+                        eb.bubble_momentum
+                    FROM entity_bubble_metrics eb
+                    WHERE eb.date >= DATEADD(DAY, -{lookback_days}, CURRENT_DATE)
+                )
+                SELECT * FROM recent_entity_data
+                UNION ALL
+                SELECT * FROM (
+                    -- Fallback to global bubble_metrics (no entity_id expected)
+                    SELECT
+                        b.time_id,
+                        b.date,
+                        NULL as entity_id,
+                        NULL as entity_name,
+                        b.hype_index,
+                        b.reality_index,
+                        b.hype_reality_gap,
+                        b.bubble_momentum
+                    FROM bubble_metrics b
+                    WHERE b.date >= DATEADD(DAY, -{lookback_days}, CURRENT_DATE)
+                )
+            )
+            ORDER BY date
+            """
+
+            df = conn.execute(query).fetchdf()
+            
+            all_alerts = []
+            for entity_id in df['entity_id'].unique():
+                entity_data = df[df['entity_id'] == entity_id]
+                
+                if len(entity_data) < self.min_samples:
+                    logger.warning(f"Insufficient data for entity {entity_id}")
+                    continue
+                
+                # Compute metrics
+                divergence = self.compute_divergence(
+                    entity_data['hype_index'],
+                    entity_data['reality_index']
+                )
+                
+                acceleration = self.compute_acceleration(divergence)
+                
+                pattern_score = self.compute_pattern_match(
+                    entity_data['hype_reality_gap']
+                )
+                
+                # Generate alerts
+                entity_alerts = self.generate_alerts(
+                    entity_id,
+                    divergence,
+                    acceleration,
+                    pattern_score
+                )
+                
+                all_alerts.extend(entity_alerts)
+            
+            # Save alerts
+            if all_alerts:
+                self.save_alerts(all_alerts)
+                
+            return all_alerts
+            
+        except Exception as e:
+            logger.error(f"Error in bubble detection: {str(e)}")
+            raise
+
+def main():
+    """Run bubble detection"""
+    try:
+        detector = BubbleDetector()
+        alerts = detector.detect_bubbles()
+        
+        # Log summary
+        alert_counts = {
+            'watch': len([a for a in alerts if a.level == 'watch']),
+            'warning': len([a for a in alerts if a.level == 'warning']),
+            'critical': len([a for a in alerts if a.level == 'critical'])
+        }
+        
+        logger.info("Bubble Detection Summary:")
+        logger.info(f"Total Alerts: {len(alerts)}")
+        for level, count in alert_counts.items():
+            logger.info(f"{level.title()}: {count}")
+            
+    except Exception as e:
+        logger.error(f"Fatal error in bubble detection: {str(e)}")
+        raise
+
+if __name__ == "__main__":
+    main()

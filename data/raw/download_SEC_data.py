@@ -3,7 +3,6 @@ import os, json, time, datetime, re
 from sec_api import QueryApi, RenderApi
 from tqdm import tqdm
 
-# Keywords for AI-related content
 AI_KEYWORDS = [
     'artificial intelligence', 'machine learning', 'deep learning', 'neural network',
     'AI', 'ML', 'generative AI', 'LLM', 'large language model', 'transformer',

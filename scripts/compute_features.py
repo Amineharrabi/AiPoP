@@ -63,13 +63,36 @@ def compute_hype_features(conn: duckdb.DuckDBPyConnection) -> None:
                 ORDER BY date 
                 ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
             ) as mentions_30d_avg,
-            -- Momentum (rate of change)
+            -- Momentum and Volatility
             (avg_sentiment - LAG(avg_sentiment, 7) OVER (PARTITION BY entity_id ORDER BY date)) 
                 / NULLIF(LAG(avg_sentiment, 7) OVER (PARTITION BY entity_id ORDER BY date), 0) 
                 as sentiment_momentum,
             (sentiment_mentions - LAG(sentiment_mentions, 7) OVER (PARTITION BY entity_id ORDER BY date)) 
                 / NULLIF(LAG(sentiment_mentions, 7) OVER (PARTITION BY entity_id ORDER BY date), 0) 
-                as mention_momentum
+                as mention_momentum,
+            -- Sentiment volatility (standard deviation)
+            STDDEV(avg_sentiment) OVER (
+                PARTITION BY entity_id 
+                ORDER BY date 
+                ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+            ) as sentiment_volatility
+    ),
+    -- Cross-entity correlation
+    entity_correlations AS (
+        SELECT 
+            rm1.time_id,
+            rm1.entity_id,
+            AVG(
+                CORR(rm1.avg_sentiment, rm2.avg_sentiment) OVER (
+                    ORDER BY rm1.date 
+                    ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+                )
+            ) as sentiment_correlation
+        FROM rolling_metrics rm1
+        JOIN rolling_metrics rm2 
+            ON rm1.date = rm2.date 
+            AND rm1.entity_id != rm2.entity_id
+        GROUP BY rm1.time_id, rm1.entity_id
     )
     SELECT 
         time_id,
@@ -117,6 +140,7 @@ def compute_reality_features(conn: duckdb.DuckDBPyConnection) -> None:
             e.entity_type,
             -- Stock metrics
             AVG(CASE WHEN metric_name = 'stock_price' THEN metric_value ELSE NULL END) as stock_price,
+            AVG(CASE WHEN metric_name = 'volume' THEN metric_value ELSE NULL END) as trading_volume,
             -- Adoption metrics
             SUM(CASE WHEN metric_name = 'model_downloads' THEN metric_value ELSE NULL END) as daily_downloads,
             SUM(CASE WHEN metric_name = 'github_stars' THEN metric_value ELSE NULL END) as github_stars

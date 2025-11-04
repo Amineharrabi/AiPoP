@@ -191,6 +191,68 @@ def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
     ORDER BY date;
     """)
 
+
+def compute_entity_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
+    """
+    Compute per-entity bubble metrics to support entity-level detection.
+    Creates `entity_bubble_metrics` with per-entity time series.
+    """
+    print("Computing entity-level bubble metrics...")
+
+    conn.execute("""
+    CREATE OR REPLACE TABLE entity_bubble_metrics AS
+    WITH base AS (
+        SELECT
+            cf.time_id,
+            cf.date,
+            cf.entity_id,
+            cf.entity_name,
+            cf.entity_type,
+            cf.hype_intensity_score,
+            cf.reality_strength_score
+        FROM combined_features cf
+    ),
+    rolling AS (
+        SELECT
+            *,
+            AVG(hype_intensity_score) OVER (
+                PARTITION BY entity_id ORDER BY date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+            ) as hype_7d_avg,
+            AVG(reality_strength_score) OVER (
+                PARTITION BY entity_id ORDER BY date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+            ) as reality_7d_avg,
+            AVG(hype_intensity_score) OVER (
+                PARTITION BY entity_id ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+            ) as hype_30d_avg,
+            AVG(reality_strength_score) OVER (
+                PARTITION BY entity_id ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+            ) as reality_30d_avg
+        FROM base
+    )
+    SELECT
+        time_id,
+        date,
+        entity_id,
+        entity_name,
+        entity_type,
+        hype_intensity_score,
+        reality_strength_score,
+        hype_7d_avg,
+        reality_7d_avg,
+        hype_30d_avg,
+        reality_30d_avg,
+        (hype_intensity_score - reality_strength_score) as hype_reality_gap,
+        CASE WHEN reality_strength_score = 0 THEN 0 ELSE hype_intensity_score / NULLIF(reality_strength_score,0) END as hype_reality_ratio,
+        (hype_7d_avg - reality_7d_avg) - (hype_30d_avg - reality_30d_avg) as bubble_momentum,
+        -- Per-entity normalized scores (0-100)
+        100 * (hype_intensity_score - MIN(hype_intensity_score) OVER (PARTITION BY entity_id)) /
+            NULLIF((MAX(hype_intensity_score) OVER (PARTITION BY entity_id) - MIN(hype_intensity_score) OVER (PARTITION BY entity_id)), 0) as hype_score,
+        100 * (reality_strength_score - MIN(reality_strength_score) OVER (PARTITION BY entity_id)) /
+            NULLIF((MAX(reality_strength_score) OVER (PARTITION BY entity_id) - MIN(reality_strength_score) OVER (PARTITION BY entity_id)), 0) as reality_score
+    FROM rolling
+    ORDER BY entity_id, date;
+    """)
+
 def main():
     """Main function to compute all indices"""
     print(f"Computing indices from warehouse: {WAREHOUSE_PATH}")
@@ -206,6 +268,7 @@ def main():
         compute_hype_index(conn)
         compute_reality_index(conn)
         compute_bubble_metrics(conn)
+        compute_entity_bubble_metrics(conn)
         
         # Print some statistics
         print("\nIndex Statistics:")
