@@ -121,6 +121,6 @@ For more information, collaboration opportunities, or feedback:
 
 - Email: amine.harrabi@example.com
 - Twitter: [@amineharrabi](https://twitter.com/amineharrabi)
-- GitHub: [AiPoP Project](https://github.com/Amineharrabi/AiPoP-)
+- GitHub: [AiPoP Project](https://github.com/Amineharrabi/AiPoP)
 
 Join us in bringing clarity and objectivity to the AI industry landscape!
