@@ -1,4 +1,4 @@
-# AiPoP - AI Progress or Propaganda Detector
+# AiPoP - AI Progress Vs Hype Detector
 
 [![Python Version](https://img.shields.io/badge/python-3.13-blue.svg)](https://python.org)
 [![DuckDB](https://img.shields.io/badge/DuckDB-0.9.2-orange.svg)](https://duckdb.org)
@@ -6,7 +6,7 @@
 
 AiPoP (AI Progress or Propaganda) is a comprehensive analysis system designed to detect and measure potential AI hype bubbles by comparing public sentiment and market excitement against concrete technological progress and real-world adoption metrics.
 
-## 🎯 Project Goals
+## Project Goals
 
 - Track and analyze AI-related hype across multiple data sources
 - Measure concrete technological progress and adoption metrics
@@ -14,7 +14,7 @@ AiPoP (AI Progress or Propaganda) is a comprehensive analysis system designed to
 - Provide early warning signals for potential AI bubbles
 - Enable data-driven decision making in AI investments and adoption
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 AiPoP/
@@ -32,7 +32,7 @@ AiPoP/
 └── requirements.txt
 ```
 
-## 📊 Data Sources
+## Data Sources
 
 1. Market Data:
    - Stock prices and trading volumes
@@ -45,7 +45,7 @@ AiPoP/
    - ArXiv paper submissions
    - HuggingFace model releases and downloads
 
-## 🔄 Pipeline Workflow
+## Pipeline Workflow
 
 1. **Data Collection**
 
@@ -69,7 +69,7 @@ AiPoP/
    - Real-time monitoring and alerts
    - Historical trend analysis
 
-## 🚀 Getting Started
+## Getting Started
 
 1. Clone the repository:
 
@@ -114,7 +114,7 @@ python scripts/detect_bubble.py
 streamlit run dashboard/app.py
 ```
 
-## 📈 Features
+## Features
 
 - **Multi-source Data Integration**: Unified analysis of market, social, and technical metrics
 - **Advanced Analytics**: Sentiment analysis, trend detection, and anomaly identification
@@ -122,11 +122,11 @@ streamlit run dashboard/app.py
 - **Interactive Visualization**: Rich dashboards for exploring trends and patterns
 - **Algorithmic Detection**: Sophisticated bubble detection using multiple indicators
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
