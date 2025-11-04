@@ -1,0 +1,232 @@
+3.3 Feature engineering (examples)
+Hype features per entity per week:
+-------------------------------more of--------------------------------------------
+
+mention_rate = mentions_last_week / mentions_prev_week
+
+
+sentiment_extremeness = abs(mean_sentiment - 0.5) * mention_volume
+
+
+retail_inflow_velocity proxy = reddit_upvotes * new_accounts_mentioning (approx)
+
+
+ai_washing_score = fraction of job titles with "AI" + fraction of new repos with "ai" tag
+
+
+Reality features:
+
+
+benchmark_improvement_pct vs previous best
+
+
+papers_reproducible_fraction (count having code + reproduction reports)
+
+
+revenue_per_product (when available)
+
+
+production_accuracy_gap = claimed - measured_production_accuracy
+
+
+Save time-aligned feature vectors into a features table.
+
+
+----------------------------end more of-----------------------------------------------------------------------------------------
+
+4 — Indices & algorithms (how to compute Hype and Reality indices)
+4.1 Normalization & weighting
+For each metric, compute z-score or robust scaling (median + MAD) to make comparable.
+
+
+Apply the weights you provided per bucket (e.g., financial spec 35% etc.). Within each bucket, do subweighting of features.
+
+
+Compute HypeIndex(t) = Σ w_i * normalized_metric_i. Same for RealityIndex.
+
+
+4.2 Divergence -> Bubble score
+divergence = HypeIndex - RealityIndex
+
+
+divergence_accel = d/dt divergence (use 1st-order diff or EWMA derivative)
+
+
+bubble_score = α * divergence + β * divergence_accel + γ * pattern_match_score
+
+
+Tune α, β, γ to maximize sensitivity (favor α>β initially for simplicity).
+
+
+4.3 Sensitivity-maximized detection methods
+Change point detection: use ruptures to find abrupt breaks in divergence series.
+
+
+CUSUM or EWMA control charts for detecting small shifts quickly.
+
+
+Anomaly detection: Isolation Forest or One-Class SVM on recent feature windows; tune contamination low (e.g., 0.01–0.05) to make it sensitive.
+
+
+Pattern matching historical bubbles: compute DTW distance between current divergence pattern and templates from Dot-com, Housing, Crypto bubbles. Lower DTW distance increases pattern_match_score.
+
+
+Granger causality / lead-lag: compute cross-correlation and use lag analysis between leading metrics and price corrections to identify lead-indicators.
+
+
+4.4 Thresholding & alerts (sensitive mode)
+Use multi-tier alerts:
+
+
+Watch: divergence z > 1.5 OR divergence_accel high.
+
+
+Warning: divergence z > 2.5 + pattern_match_score below threshold.
+
+
+Critical: divergence z > 3.0 AND pattern_match_score very similar to historical bubble.
+
+
+Calibrate thresholds using backtesting (see evaluation).
+
+
+
+5 — Backtesting & evaluation (how to validate)
+5.1 Historical bubbles dataset
+Build templates: use historical time periods (1999-2002 dot-com, 2006-2009 housing, 2016-2018 crypto bubble, 2020-2021 crypto) — collect price indices + media mentions + VC funding spikes for those periods.
+
+
+Evaluate detection: For each historical period, compute indices and record when system would have raised Watch/Warning/Critical relative to the actual market peak and correction.
+
+
+5.2 Metrics
+Time lead: average days/weeks the detection preceded the peak/correction.
+
+
+Precision / recall: count of true positives (bubbles detected that had a >=X% correction within Y months) vs false positives.
+
+
+False alarm rate: % of warnings not followed by correction.
+
+
+ROC-like curve: vary thresholds to pick sensitivity curve.
+
+
+5.3 Sanity checks
+A system tuned for high sensitivity will produce more false positives — document that explicitly.
+
+
+Use cross-validation across bubble templates (leave-one-bubble-out).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+8 — Dashboard & UX details (what to show)
+Top panel: Current HypeIndex, RealityIndex, Divergence, Alert level.
+
+
+Time series chart: both indices overlayed (interactive).
+
+
+Signal breakdown: stacked bar of contribution by bucket.
+
+
+Entity explorer: select company / model / sector to see per-entity graphs.
+
+
+Historical bubble match view: show DTW similarity and aligned plots.
+
+
+Backtest panel: show historical detection points overlaid on price corrections.
+
+
+Export: CSV of alerts, snapshot images for video.
+
+
+Stack: Streamlit (fast), Plotly for interactivity (works in Streamlit). Host locally or on GitHub Pages (static snapshot) — Streamlit Cloud has free tier but may require sign-up; you can use streamlit locally for demo.
+
+9 — Sensitivity tuning guidelines (practical)
+Use robust scaling (median/MAD) for social signals (heavy tails).
+
+
+Use lower smoothing window (e.g., weekly, or even 24–72h for high-frequency) for high sensitivity.
+
+
+Prefer short lookback windows for divergence acceleration computation (sensitive to micro-trends). Example: 7-day window for mention spikes.
+
+
+Combine statistical alarms (z-scores) with structural alarms (pattern match to historical bubbles) — both must align for stronger alerts.
+
+
+Document expected false-positive rate — be transparent in dashboard.
+
+
+
+10 — Ethics, legal, and data use cautions
+Respect API Terms of Service (no large-scale scraping of sites that forbid it).
+
+
+When using user-generated content (Reddit, Twitter), strip PII and follow platform policies.
+
+
+Add a clear disclaimer on the dashboard and video: this is research/educational, not financial advice.
+
+
+
+
+
+
+12 — Backtesting example: pseudo-procedure
+Select historical bubble period (e.g., 2017–2018 crypto).
+
+
+Compute Hype & Reality weekly indices across that period.
+
+
+Run detection rules and log alert dates.
+
+
+Measure days between alert and market peak, and between alert and 30% correction.
+
+
+Plot precision/recall by varying alert threshold.
+
+
+
+13 — YouTube video plan (structure + visuals)
+Intro (30–45s) — elevator pitch: “Can we spot an AI bubble before it bursts?” Show quick montage of headlines.
+
+
+Architecture overview (1:00) — simple diagram: Data sources → DW (DuckDB) → Indices → Dashboard. Show code repo.
+
+
+Data demo (1:30) — live-run a simple scraper pulling Reddit + Google Trends; show raw -> Parquet.
+
+
+Index construction (2:00) — visual: heatmap showing weights; animate how a spike in mentions raises Hype.
+
+
+Detection & backtest (2:00) — show detection on historical bubble; highlight lead time.
+
+
+Live demo (2:00) — open dashboard, select a company/model, trigger an alert.
+
+
+Limitations & ethics (1:00) — be transparent about false positives and not financial advice.
+
+
+Wrap-up (0:30) — how to reproduce; link to GitHub; call-to-action.
+
+
+Tools to record: OBS (free), Streamlit + Chrome, insert terminal recordings, overlay diagrams (PowerPoint or Figma free tier). Use B-roll of code and charts. Prepare short captions and a 2–3 minute summary clip for social.
+

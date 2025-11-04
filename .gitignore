@@ -1,0 +1,7 @@
+.env
+__pycache__/
+venv/
+*.pyc
+data/raw/**
+data/staging/**
+data/warehouse/**

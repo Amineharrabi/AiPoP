@@ -22,3 +22,12 @@ tzdata==2025.2
 urllib3==2.5.0
 websockets==15.0.1
 yfinance==0.2.66
+
+# Additional packages used by ETL scripts
+praw==7.9.0
+python-dotenv==1.0.0
+vaderSentiment==3.3.3
+sec-api==1.0.32
+tqdm==4.67.1
+pyarrow==12.0.0
+arxiv==2.0.0

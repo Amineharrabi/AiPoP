@@ -1,0 +1,89 @@
+All ETL scripts save their cleaned data to Parquet format in the staging directory:
+
+reddit_clean.parquet
+news_clean.parquet
+github_clean.parquet and huggingface_clean.parquet
+arxiv_clean.parquet
+yfinance_clean.parquet
+sec_clean.parquet
+All of them follow the same pattern:
+
+
+For arXiv papers, we now track:
+
+Innovation Score (0-1) based on:
+Novel method detection
+Performance improvements
+Resource efficiency claims
+Reproducibility indicators
+Practical application potential
+Technical Complexity score
+Publication Impact (collaborator count as proxy)
+For GitHub repositories, we now track:
+
+Activity Metrics:
+Monthly commit frequency
+Release velocity
+Active contributor ratio
+Community Health:
+Stars per fork ratio
+Issues per star ratio
+Community size
+Progress Scores:
+Activity Score (combining commits and releases)
+Community Score (combining contributors and stars)
+Maturity Score (based on project age and adoption)
+For HuggingFace models, the existing metrics track:
+
+Download trends
+Likes growth
+Monthly usage statistics
+Update frequency
+Documentation quality
+Discover models across multiple AI categories (LLMs, vision, speech, etc.)
+Filter based on activity and adoption metrics
+Focus on recently updated models (last 90 days)
+Track models with meaningful adoption (>1000 downloads)
+Key improvements:
+
+Automatically discovers new and emerging models
+Drops inactive/abandoned models naturally
+Adapts to new categories and trends
+Balances between established and emerging models
+Filter criteria:
+
+Recent updates (within 90 days)
+Public models only
+Minimum adoption threshold
+Active maintenance
+Across multiple AI domains
+These metrics will help identify:
+
+Rising stars vs declining projects
+Breakthrough papers vs incremental improvements
+Healthy vs stagnating projects
+Community adoption trends
+Technical progress indicators
+For GitHub/HuggingFace (Technical Progress Metrics):
+Activity Metrics: Commit frequency, issue resolution time, release frequency
+Adoption Metrics: Stars growth rate, fork growth rate, download trends
+Performance Metrics: Training time improvements, inference speed gains
+Resource Efficiency: Memory usage trends, GPU requirements
+Community Growth: Contributor growth, discussion activity
+For arXiv papers (Research Impact & Innovation Metrics):
+Citation Impact: Track how quickly papers are cited
+Technical Breakthrough Score: Based on novel methods/approaches
+Reproducibility Score: Based on code availability and replication
+Resource Efficiency Claims: Improvements in compute/memory requirements
+Problem-Solving Score: How well it addresses known challenges
+
+
+
+Raw data is saved as JSON files in the raw directory
+Cleaned and processed data is saved as Parquet files in the staging directory
+This is good practice because:
+
+We maintain raw data in JSON format for debugging and reprocessing
+We use Parquet format for staging, which is optimized for analytics
+All scripts are consistent in their output format
+All data is ready for efficient loading into DuckDB
