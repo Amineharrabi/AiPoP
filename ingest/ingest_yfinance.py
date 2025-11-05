@@ -5,6 +5,10 @@ import pandas as pd
 from datetime import datetime, timedelta
 import pytz
 from typing import List, Dict, Optional
+import sys
+
+# Add the setup directory to path to import DataManager
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'setup'))
 from data_manager import DataManager
 import duckdb
 
@@ -95,7 +99,8 @@ class StockDataIngester:
             # Convert to DataFrame
             facts_df = pd.DataFrame(facts)
             
-            # Update fact_reality_signals
+            # Insert facts using pandas to duckdb
+            conn.register('facts_df', facts_df)
             conn.execute("""
                 INSERT INTO fact_reality_signals 
                 SELECT 

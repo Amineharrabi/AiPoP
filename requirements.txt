@@ -31,3 +31,13 @@ sec-api==1.0.32
 tqdm==4.67.1
 pyarrow==12.0.0
 arxiv==2.0.0
+
+# Core analytics and visualization
+plotly==5.18.0
+streamlit==1.40.1
+duckdb==1.2.1
+scikit-learn==1.5.1
+numpy==2.3.4
+statsmodels==0.14.2
+dtaidistance==2.3.14
+ruptures==1.1.9

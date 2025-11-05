@@ -20,7 +20,7 @@ if not NEWS_API_KEY:
         "   NEWS_API_KEY=your_api_key_here"
     )
 
-# Setup paths
+# Fixed paths for new structure
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 RAW_DIR = os.path.join(BASE_DIR, 'data', 'raw', 'news')
 STAGING_DIR = os.path.join(BASE_DIR, 'data', 'staging')
@@ -36,11 +36,12 @@ COMPANIES = [
     'Cadence', 'ARM Holdings', 'Super Micro Computer', 'Dell'
 ]
 
-# AI-related keywords
+# Enhanced AI-related keywords for better sentiment tracking
 AI_KEYWORDS = [
     'artificial intelligence', 'machine learning', 'deep learning', 'neural network',
     'AI', 'ML', 'generative AI', 'LLM', 'large language model', 'transformer',
-    'GPU', 'semiconductor', 'chip', 'data center', 'cloud computing'
+    'GPU', 'semiconductor', 'chip', 'data center', 'cloud computing',
+    'automation', 'computer vision', 'natural language processing', 'robotics'
 ]
 
 def get_news_articles(query, from_date, to_date):
@@ -74,9 +75,9 @@ def main():
     
     all_articles = []
     
-    # Get news for each company
+    # Get news for each company with enhanced AI tracking
     for company in tqdm(COMPANIES, desc="Fetching company news"):
-        # Combine company name with AI keywords
+        # Combine company name with AI keywords for better coverage
         query = f'({company}) AND ({" OR ".join(AI_KEYWORDS)})'
         
         response = get_news_articles(
@@ -88,11 +89,24 @@ def main():
         if response and response.get('articles'):
             articles = response['articles']
             
-            # Process each article
+            # Process each article with enhanced sentiment analysis
             for article in articles:
                 # Combine title and description for sentiment analysis
                 text = f"{article.get('title', '')} {article.get('description', '')}"
                 sentiment = analyzer.polarity_scores(text)
+                
+                # Count AI keyword mentions for weighted sentiment
+                ai_mentions = sum(1 for keyword in AI_KEYWORDS if keyword.lower() in text.lower())
+                
+                # Calculate sentiment intensity and confidence
+                sentiment_score = sentiment['compound']
+                sentiment_confidence = max(sentiment['pos'], sentiment['neg'])
+                
+                # Determine article impact based on source and engagement proxy
+                source_name = article.get('source', {}).get('name', '')
+                impact_score = 1.0  # Base score
+                if any(tech_site in source_name.lower() for tech_site in ['tech', 'reuters', 'bloomberg', 'cnbc']):
+                    impact_score = 1.5  # Higher impact for major tech/business outlets
                 
                 record = {
                     'company': company,
@@ -100,8 +114,27 @@ def main():
                     'title': article.get('title'),
                     'description': article.get('description'),
                     'url': article.get('url'),
-                    'source': article.get('source', {}).get('name'),
-                    'sentiment': sentiment['compound']
+                    'source': source_name,
+                    
+                    # Enhanced sentiment analysis
+                    'sentiment': sentiment_score,
+                    'sentiment_pos': sentiment['pos'],
+                    'sentiment_neg': sentiment['neg'],
+                    'sentiment_neu': sentiment['neu'],
+                    'sentiment_confidence': sentiment_confidence,
+                    
+                    # AI-specific metrics
+                    'ai_mentions': ai_mentions,
+                    'ai_weighted_sentiment': sentiment_score * (1 + ai_mentions * 0.1),  # Boost AI-weighted sentiment
+                    
+                    # Impact and relevance
+                    'impact_score': impact_score,
+                    'is_tech_relevant': ai_mentions > 0,
+                    
+                    # Text analysis
+                    'title_length': len(article.get('title', '')),
+                    'description_length': len(article.get('description', '')),
+                    'has_ai_keywords': ai_mentions > 0
                 }
                 
                 all_articles.append(record)
@@ -114,13 +147,21 @@ def main():
         raw_file = os.path.join(RAW_DIR, f"news_{end_date.strftime('%Y%m%d')}.json")
         pd.DataFrame(all_articles).to_json(raw_file, orient='records', lines=True)
         
-        # Save cleaned data to staging
+        # Save cleaned data to staging with enhanced metrics
         df = pd.DataFrame(all_articles)
         df['publishedAt'] = pd.to_datetime(df['publishedAt'])
+        
+        # Calculate additional metrics for bubble detection
+        df['sentiment_intensity'] = abs(df['sentiment'])  # Absolute sentiment for intensity
+        df['ai_sentiment_score'] = df['ai_weighted_sentiment']  # AI-weighted sentiment
+        df['impact_weighted_sentiment'] = df['sentiment'] * df['impact_score']
+        
         staging_file = os.path.join(STAGING_DIR, 'news_clean.parquet')
         df.to_parquet(staging_file, index=False)
         
         print(f"\nProcessed {len(all_articles)} articles")
+        print(f"AI-relevant articles: {df['is_tech_relevant'].sum()}")
+        print(f"Average AI-weighted sentiment: {df['ai_sentiment_score'].mean():.3f}")
         print(f"Raw data saved to {raw_file}")
         print(f"Cleaned data saved to {staging_file}")
     else:

@@ -1,0 +1,1 @@
+# scripts package for AI Bubble Detection project

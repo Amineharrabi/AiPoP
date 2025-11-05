@@ -3,13 +3,13 @@ import duckdb
 from datetime import datetime
 import pandas as pd
 
-# Setup paths
+# Fixed paths for new structure
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 STAGING_DIR = os.path.join(BASE_DIR, 'data', 'staging')
 WAREHOUSE_PATH = os.path.join(BASE_DIR, 'data', 'warehouse', 'ai_bubble.duckdb')
 
 def load_staging_data():
-    """Load all staged Parquet files into DuckDB warehouse"""
+    """Load all staged Parquet files into DuckDB warehouse with enhanced multi-source integration"""
     print(f"Loading data into warehouse: {WAREHOUSE_PATH}")
     
     # Connect to DuckDB
@@ -33,10 +33,6 @@ def load_staging_data():
                 -- News article dates
                 SELECT DISTINCT date_trunc('day', publishedAt::timestamp) as date 
                 FROM parquet_scan('{0}/news_clean.parquet')
-                UNION
-                -- SEC filing dates
-                SELECT DISTINCT date_trunc('day', filedAt::timestamp) as date 
-                FROM parquet_scan('{0}/sec_clean.parquet')
                 UNION
                 -- ArXiv paper dates
                 SELECT DISTINCT date_trunc('day', published::timestamp) as date 
@@ -80,7 +76,7 @@ def load_staging_data():
                     name,
                     model_id as ticker,
                     'ai_model' as entity_type,
-                    pipeline_tag as industry
+                    COALESCE(pipeline_tag, 'general') as industry
                 FROM parquet_scan('{0}/huggingface_clean.parquet')
                 UNION
                 -- GitHub repositories
@@ -90,6 +86,14 @@ def load_staging_data():
                     'software' as entity_type,
                     'ai_infrastructure' as industry
                 FROM parquet_scan('{0}/github_clean.parquet')
+                UNION
+                -- ArXiv research topics
+                SELECT DISTINCT
+                    search_term as name,
+                    search_term as ticker,
+                    'research' as entity_type,
+                    'academic' as industry
+                FROM parquet_scan('{0}/arxiv_clean.parquet')
             )
             SELECT 
                 ROW_NUMBER() OVER (ORDER BY name) as entity_id,
@@ -116,7 +120,6 @@ def load_staging_data():
                 VALUES 
                     ('reddit', 'social_media'),
                     ('news', 'media'),
-                    ('sec', 'financial'),
                     ('arxiv', 'academic'),
                     ('github', 'technical'),
                     ('huggingface', 'technical'),
@@ -125,20 +128,20 @@ def load_staging_data():
             WHERE source_name NOT IN (SELECT source_name FROM dim_source)
         """)
         
-        # 4. Load hype signals fact table
-        print("Loading hype signals...")
+        # 4. Load enhanced hype signals fact table
+        print("Loading enhanced hype signals...")
         conn.execute("""
             INSERT INTO fact_hype_signals (
                 time_id, entity_id, source_id, signal_type, metric_name, metric_value, raw_text, url
             )
-            -- Reddit sentiment
+            -- Reddit sentiment with AI weighting
             SELECT 
                 t.time_id,
                 e.entity_id,
                 s.source_id,
                 'sentiment' as signal_type,
-                'reddit_sentiment' as metric_name,
-                r.sentiment as metric_value,
+                'reddit_ai_sentiment' as metric_name,
+                r.ai_sentiment_score as metric_value,
                 r.title || ' ' || r.selftext as raw_text,
                 r.url
             FROM parquet_scan('{0}/reddit_clean.parquet') r
@@ -146,14 +149,14 @@ def load_staging_data():
             JOIN dim_entity e ON r.subreddit = e.name
             JOIN dim_source s ON s.source_name = 'reddit'
             UNION ALL
-            -- News sentiment
+            -- News sentiment with AI weighting
             SELECT 
                 t.time_id,
                 e.entity_id,
                 s.source_id,
                 'sentiment' as signal_type,
-                'news_sentiment' as metric_name,
-                n.sentiment as metric_value,
+                'news_ai_sentiment' as metric_name,
+                n.ai_sentiment_score as metric_value,
                 n.title || ' ' || n.description as raw_text,
                 n.url
             FROM parquet_scan('{0}/news_clean.parquet') n
@@ -161,14 +164,14 @@ def load_staging_data():
             JOIN dim_entity e ON n.company = e.name
             JOIN dim_source s ON s.source_name = 'news'
             UNION ALL
-            -- GitHub activity
+            -- GitHub trending activity
             SELECT 
                 t.time_id,
                 e.entity_id,
                 s.source_id,
-                'activity' as signal_type,
-                'github_activity' as metric_name,
-                g.activity_score as metric_value,
+                'trending' as signal_type,
+                'github_trending_score' as metric_name,
+                g.trending_score as metric_value,
                 NULL as raw_text,
                 'https://github.com/' || g.name as url
             FROM parquet_scan('{0}/github_clean.parquet') g
@@ -176,14 +179,29 @@ def load_staging_data():
             JOIN dim_entity e ON g.name = e.name
             JOIN dim_source s ON s.source_name = 'github'
             UNION ALL
-            -- ArXiv papers
+            -- HuggingFace trending activity
             SELECT 
                 t.time_id,
                 e.entity_id,
                 s.source_id,
-                'research' as signal_type,
-                'arxiv_innovation' as metric_name,
-                a.innovation_score as metric_value,
+                'trending' as signal_type,
+                'huggingface_trending_score' as metric_name,
+                h.trending_score as metric_value,
+                NULL as raw_text,
+                'https://huggingface.co/' || h.model_id as url
+            FROM parquet_scan('{0}/huggingface_clean.parquet') h
+            JOIN dim_time t ON date_trunc('day', h.collected_at::timestamp) = t.date
+            JOIN dim_entity e ON h.model_id = e.ticker
+            JOIN dim_source s ON s.source_name = 'huggingface'
+            UNION ALL
+            -- ArXiv innovation
+            SELECT 
+                t.time_id,
+                e.entity_id,
+                s.source_id,
+                'innovation' as signal_type,
+                'arxiv_innovation_score' as metric_name,
+                a.impact_score as metric_value,
                 a.title || ' ' || a.abstract as raw_text,
                 a.pdf_url as url
             FROM parquet_scan('{0}/arxiv_clean.parquet') a
@@ -192,8 +210,8 @@ def load_staging_data():
             JOIN dim_source s ON s.source_name = 'arxiv'
         """.format(STAGING_DIR))
         
-        # 5. Load reality signals fact table
-        print("Loading reality signals...")
+        # 5. Load enhanced reality signals fact table
+        print("Loading enhanced reality signals...")
         conn.execute("""
             INSERT INTO fact_reality_signals (
                 time_id, entity_id, metric_name, metric_value, metric_unit, provenance
@@ -210,24 +228,48 @@ def load_staging_data():
             JOIN dim_time t ON y.date = t.date
             JOIN dim_entity e ON y.ticker = e.ticker
             UNION ALL
-            -- HuggingFace model adoption
+            -- Stock volume
             SELECT 
                 t.time_id,
                 e.entity_id,
-                'model_downloads' as metric_name,
-                h.downloads as metric_value,
+                'trading_volume' as metric_name,
+                y.volume as metric_value,
+                'shares' as metric_unit,
+                'yfinance' as provenance
+            FROM parquet_scan('{0}/yfinance_clean.parquet') y
+            JOIN dim_time t ON y.date = t.date
+            JOIN dim_entity e ON y.ticker = e.ticker
+            UNION ALL
+            -- HuggingFace model adoption with deltas
+            SELECT 
+                t.time_id,
+                e.entity_id,
+                'model_downloads_delta' as metric_name,
+                h.downloads_delta as metric_value,
                 'count' as metric_unit,
                 'huggingface' as provenance
             FROM parquet_scan('{0}/huggingface_clean.parquet') h
             JOIN dim_time t ON date_trunc('day', h.collected_at::timestamp) = t.date
             JOIN dim_entity e ON h.model_id = e.ticker
             UNION ALL
-            -- GitHub project metrics
+            -- GitHub project metrics with deltas
             SELECT 
                 t.time_id,
                 e.entity_id,
-                'github_stars' as metric_name,
-                g.stars as metric_value,
+                'github_stars_delta' as metric_name,
+                g.stars_delta as metric_value,
+                'count' as metric_unit,
+                'github' as provenance
+            FROM parquet_scan('{0}/github_clean.parquet') g
+            JOIN dim_time t ON date_trunc('day', g.collected_at::timestamp) = t.date
+            JOIN dim_entity e ON g.name = e.name
+            UNION ALL
+            -- GitHub forks delta
+            SELECT 
+                t.time_id,
+                e.entity_id,
+                'github_forks_delta' as metric_name,
+                g.forks_delta as metric_value,
                 'count' as metric_unit,
                 'github' as provenance
             FROM parquet_scan('{0}/github_clean.parquet') g

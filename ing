@@ -22,12 +22,16 @@ if not GITHUB_TOKEN or not HF_TOKEN:
     print("  HF_ACCESS_TOKEN=your_huggingface_token")
     raise SystemExit(1)
 
-# Setup paths
+# Fixed paths for new structure
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 RAW_DIR = os.path.join(BASE_DIR, 'data', 'raw', 'github_hf')
 STAGING_DIR = os.path.join(BASE_DIR, 'data', 'staging')
 os.makedirs(RAW_DIR, exist_ok=True)
 os.makedirs(STAGING_DIR, exist_ok=True)
+
+# Import DataManager for delta calculations
+sys.path.append(os.path.join(BASE_DIR, 'setup'))
+from data_manager import DataManager
 
 GITHUB_REPOS = [
     # Core Deep Learning Frameworks
@@ -108,7 +112,7 @@ GITHUB_REPOS = [
     'meta-llama/llama',             # Meta's LLaMA (official releases)
     'meta-llama/llama-recipes',
     'karpathy/nanoGPT',            # Minimal GPT from scratch
-    'karpathy/llama2.c',           # LLaMA 2 inference in C
+    'karpathy/llama2.c',           # LaMA 2 inference in C
     'ggerganov/llama.cpp',         # LLM inference in C/C++ (GGUF format)
     'ggerganov/whisper.cpp',
     'composable-models/llava',     # Multimodal (vision-language)
@@ -133,9 +137,12 @@ GITHUB_REPOS = [
     'modal-labs/llm-finetuning'
 ]
 
+class GitHubHFDeltaclass:
+    def __init__(self):
+        self.data_manager = DataManager()
 
 def get_github_repo_data(repo):
-    """Fetch repository data from GitHub API with progress metrics"""
+    """Fetch repository data from GitHub API with progress metrics and delta calculations"""
     url = f'https://api.github.com/repos/{repo}'
     headers = {'Authorization': f'token {GITHUB_TOKEN}'}
     
@@ -179,7 +186,23 @@ def get_github_repo_data(repo):
         else:
             release_frequency = 0
         
-        # Progress Metrics
+        # Prepare current metrics for delta calculation
+        current_metrics = {
+            'name': repo,
+            'stars': repo_data.get('stargazers_count'),
+            'forks': repo_data.get('forks_count'),
+            'open_issues': repo_data.get('open_issues_count'),
+            'watchers': repo_data.get('subscribers_count'),
+            'monthly_commits': monthly_commit_count,
+            'release_frequency': release_frequency,
+            'total_contributors': contributor_count,
+            'active_contributors': active_contributors
+        }
+        
+        # Calculate deltas using DataManager
+        deltas = GitHubHFDeltaclass().data_manager.compute_github_deltas(current_metrics)
+        
+        # Progress Metrics with enhanced delta tracking
         progress_metrics = {
             # Basic Stats
             'name': repo,
@@ -187,6 +210,12 @@ def get_github_repo_data(repo):
             'forks': repo_data.get('forks_count'),
             'open_issues': repo_data.get('open_issues_count'),
             'watchers': repo_data.get('subscribers_count'),
+            
+            # Delta Metrics (NEW - for trending analysis)
+            'stars_delta': deltas['stars_delta'],
+            'forks_delta': deltas['forks_delta'],
+            'activity_change': deltas['activity_change'],
+            'momentum_score': deltas['momentum_score'],
             
             # Activity Metrics
             'monthly_commits': monthly_commit_count,
@@ -211,10 +240,13 @@ def get_github_repo_data(repo):
             'topics': repo_data.get('topics', []),
             'license': repo_data.get('license', {}).get('name'),
             
-            # Composite Scores (0-1 scale)
+            # Enhanced Composite Scores (0-1 scale)
             'activity_score': (monthly_commit_count / 100 + release_frequency / 2) / 2,  # normalize by expected values
             'community_score': (active_contributors / 50 + (repo_data.get('stargazers_count', 0) / 10000)) / 2,  # normalize
             'maturity_score': min(repo_data.get('stargazers_count', 0) / 10000, 1.0),  # cap at 1.0
+            
+            # NEW: Trending Score based on deltas
+            'trending_score': abs(deltas['momentum_score']) + abs(deltas['activity_change']) * 0.5,
             
             'collected_at': datetime.now().astimezone().replace(microsecond=0).isoformat()
         }
@@ -224,13 +256,9 @@ def get_github_repo_data(repo):
     except Exception as e:
         print(f"Error fetching data for {repo}: {str(e)}")
         return None
-    
-    except Exception as e:
-        print(f"Error fetching data for {repo}: {str(e)}")
-        return None
 
 def get_huggingface_model_data(model_id):
-    """Fetch model data from HuggingFace Hub API"""
+    """Fetch model data from HuggingFace Hub API with delta calculations"""
     base_url = 'https://huggingface.co/api'
     headers = {'Authorization': f'Bearer {HF_TOKEN}'}
     
@@ -261,6 +289,18 @@ def get_huggingface_model_data(model_id):
         except:
             monthly_downloads = {}
             
+        # Prepare current metrics for delta calculation
+        current_metrics = {
+            'model_id': model_id,
+            'downloads': data.get('downloads', 0),
+            'likes': data.get('likes', 0),
+            'last_modified': data.get('lastModified'),
+            'downloads_last_month': monthly_downloads.get(list(monthly_downloads.keys())[-1], 0) if monthly_downloads else 0
+        }
+        
+        # Calculate deltas using DataManager
+        deltas = GitHubHFDeltaclass().data_manager.compute_hf_deltas(current_metrics)
+            
         # Parse timestamps with timezone handling
         def parse_timestamp(ts):
             if not ts:
@@ -283,6 +323,12 @@ def get_huggingface_model_data(model_id):
             'author': data.get('author'),
             'license': data.get('license'),
             'private': data.get('private', False),
+            
+            # NEW: Delta Metrics for trending analysis
+            'downloads_delta': deltas['downloads_delta'],
+            'likes_delta': deltas['likes_delta'],
+            'trending_score': deltas['trending_score'],
+            
             'downloads_last_month': monthly_downloads.get(list(monthly_downloads.keys())[-1], 0) if monthly_downloads else 0,
             'model_card': model_card,
             'collected_at': datetime.now().astimezone().replace(microsecond=0)
@@ -395,23 +441,34 @@ def main():
         raw_file = os.path.join(RAW_DIR, 'huggingface_models.json')
         df_hf.to_json(raw_file, orient='records', lines=True)
     
-    # Combine and save to staging
+    # Combine and save to staging with enhanced metrics
     if github_data or hf_data:
         # Save GitHub data
         if github_data:
             df_github['source'] = 'github'
+            # Add trending classification
+            df_github['trending_category'] = df_github['momentum_score'].apply(
+                lambda x: 'hot' if x > 0.1 else 'stable' if x > -0.1 else 'declining'
+            )
             staging_file = os.path.join(STAGING_DIR, 'github_clean.parquet')
             df_github.to_parquet(staging_file, index=False)
             print(f"\nProcessed {len(github_data)} GitHub repositories")
+            print(f"Trending breakdown: {df_github['trending_category'].value_counts().to_dict()}")
             
         # Save HuggingFace data
         if hf_data:
             df_hf['source'] = 'huggingface'
+            # Add trending classification
+            df_hf['trending_category'] = df_hf['trending_score'].apply(
+                lambda x: 'hot' if x > 0.05 else 'stable' if x > -0.05 else 'declining'
+            )
             staging_file = os.path.join(STAGING_DIR, 'huggingface_clean.parquet')
             df_hf.to_parquet(staging_file, index=False)
             print(f"Processed {len(hf_data)} HuggingFace models")
+            print(f"Trending breakdown: {df_hf['trending_category'].value_counts().to_dict()}")
     else:
         print("No data was collected")
 
 if __name__ == "__main__":
+    import sys  # Import sys here to avoid circular import
     main()

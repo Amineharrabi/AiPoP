@@ -4,7 +4,7 @@ import schedule
 import logging
 from datetime import datetime
 import pytz
-from data_manager import DataManager
+from scripts.data_manager import DataManager
 
 # Configure logging
 logging.basicConfig(
