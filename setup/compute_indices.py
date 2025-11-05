@@ -20,6 +20,8 @@ def compute_hype_index(conn: duckdb.DuckDBPyConnection) -> None:
     CREATE OR REPLACE TABLE hype_index AS
     WITH 
     -- Enhanced entity weights based on multi-source engagement
+    -- Entity weights: if mention counts are not available in combined_features,
+    -- fall back to using multi-source intensity and trending proxies.
     entity_weights AS (
         SELECT 
             entity_id,
@@ -27,17 +29,16 @@ def compute_hype_index(conn: duckdb.DuckDBPyConnection) -> None:
             entity_type,
             CASE 
                 WHEN entity_type = 'company' THEN 
-                    (AVG(COALESCE(reddit_mentions, 0)) + 
-                     AVG(COALESCE(news_mentions, 0)) + 
-                     AVG(COALESCE(github_mentions, 0))) * 2  -- Higher weight for companies
+                    (AVG(COALESCE(multi_source_hype_intensity, 0)) + 
+                     AVG(COALESCE(trending_intensity, 0))) * 2  -- Higher weight for companies
                 WHEN entity_type = 'software' THEN 
-                    (AVG(COALESCE(github_mentions, 0)) + 
-                     AVG(COALESCE(hf_mentions, 0))) * 1.5
+                    (AVG(COALESCE(github_trending_score, 0)) + 
+                     AVG(COALESCE(hf_trending_score, 0))) * 1.5
                 WHEN entity_type = 'ai_model' THEN 
-                    (AVG(COALESCE(hf_mentions, 0)) + 
+                    (AVG(COALESCE(hf_trending_score, 0)) + 
                      AVG(COALESCE(arxiv_innovation_score, 0) * 100)) * 1.3
                 ELSE 
-                    AVG(COALESCE(research_mentions, 0)) + AVG(COALESCE(reddit_mentions, 0))
+                    AVG(COALESCE(arxiv_innovation_score, 0)) + AVG(COALESCE(multi_source_hype_intensity, 0))
             END as entity_weight
         FROM combined_features
         GROUP BY entity_id, entity_name, entity_type
@@ -77,8 +78,9 @@ def compute_hype_index(conn: duckdb.DuckDBPyConnection) -> None:
         SUM(entity_weight * norm_trending_intensity) / NULLIF(SUM(entity_weight), 0) as trending_component,
         SUM(entity_weight * norm_innovation) / NULLIF(SUM(entity_weight), 0) as innovation_component,
         -- Additional statistics
-        COUNT(DISTINCT entity_id) as entity_count,
-        SUM(reddit_mentions + news_mentions + github_mentions + hf_mentions) as total_mentions
+    COUNT(DISTINCT entity_id) as entity_count,
+    -- If mention count columns are not available, provide a proxy using intensity metrics
+    SUM(COALESCE(multi_source_hype_intensity, 0) + COALESCE(trending_intensity, 0)) as total_mentions_proxy
     FROM normalized_metrics
     GROUP BY time_id, date
     ORDER BY date;
@@ -238,8 +240,8 @@ def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
         -- Component-specific momentum gaps
         (sentiment_7d_avg - reality_7d_avg) as sentiment_bubble_momentum,
         (github_trend_7d_avg - reality_github_7d_avg) as github_trending_bubble_momentum,
-        -- NEW: Trending divergence indicator
-        (h.trending_component - r.cumulative_impact_component) as trending_reality_divergence,
+    -- NEW: Trending divergence indicator (use columns from rolling_metrics)
+    (trending_component - cumulative_impact_component) as trending_reality_divergence,
         -- Normalized scores (0-100 scale)
         100 * (hype_index - MIN(hype_index) OVER()) / 
             NULLIF((MAX(hype_index) OVER() - MIN(hype_index) OVER()), 0) as hype_score,

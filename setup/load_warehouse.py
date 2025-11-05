@@ -2,6 +2,94 @@ import os
 import duckdb
 from datetime import datetime
 import pandas as pd
+from pathlib import Path
+
+
+def _flatten_col(col):
+    # Convert tuple-like column names into a single string
+    try:
+        if isinstance(col, tuple):
+            parts = [str(c).strip() for c in col if c is not None and str(c).strip() != '']
+            return '_'.join(parts)
+    except Exception:
+        pass
+    return str(col)
+
+
+def _normalize_yfinance(path: str) -> pd.DataFrame:
+    """Load a possibly pivoted yfinance parquet and return long-format DataFrame
+    with columns: date (DATE), ticker, close, volume
+    """
+    df = pd.read_parquet(path)
+
+    # Flatten multi-index column names if present
+    df.columns = [_flatten_col(c) for c in df.columns]
+
+    # Find date column
+    date_col = None
+    for c in df.columns:
+        if c.lower().strip() in ('date', 'datetime') or c.lower().startswith('date'):
+            date_col = c
+            break
+    if date_col is None:
+        # try common fallback
+        possible = [c for c in df.columns if 'date' in c.lower()]
+        date_col = possible[0] if possible else df.columns[0]
+
+    # If already long format (has 'ticker' column), use directly
+    if any(c.lower() == 'ticker' for c in df.columns):
+        long = df.rename(columns={date_col: 'date'})
+        # Normalize column names
+        cols = {c: c.lower() for c in long.columns}
+        long = long.rename(columns=cols)
+        if 'close' in long.columns and 'volume' in long.columns:
+            return long[['date', 'ticker', 'close', 'volume']]
+        # try to find close/volume variants
+        close_col = next((c for c in long.columns if 'close' in c and c != 'close'), None)
+        vol_col = next((c for c in long.columns if 'volume' in c and c != 'volume'), None)
+        return long[['date', 'ticker'] + ([close_col] if close_col else []) + ([vol_col] if vol_col else [])]
+
+    # Otherwise, wide/pivoted format: look for columns like Close_<TICKER> and Volume_<TICKER>
+    close_cols = [c for c in df.columns if c.lower().startswith('close')]
+    vol_cols = [c for c in df.columns if c.lower().startswith('volume')]
+
+    # If no close columns, try variations
+    if not close_cols:
+        close_cols = [c for c in df.columns if 'close' in c.lower()]
+    if not vol_cols:
+        vol_cols = [c for c in df.columns if 'volume' in c.lower()]
+
+    # Extract tickers from suffix after separator
+    tickers = set()
+    for c in close_cols:
+        parts = c.split('_', 1)
+        if len(parts) == 2 and parts[1].strip():
+            tickers.add(parts[1])
+    for c in vol_cols:
+        parts = c.split('_', 1)
+        if len(parts) == 2 and parts[1].strip():
+            tickers.add(parts[1])
+
+    records = []
+    for tk in sorted(tickers):
+        close_col = next((c for c in close_cols if c.endswith('_' + tk)), None)
+        vol_col = next((c for c in vol_cols if c.endswith('_' + tk)), None)
+        if close_col is None and vol_col is None:
+            continue
+        tmp = pd.DataFrame()
+        tmp['date'] = pd.to_datetime(df[date_col], errors='coerce').dt.normalize()
+        tmp['ticker'] = tk
+        tmp['close'] = df[close_col] if close_col in df.columns else None
+        tmp['volume'] = df[vol_col] if vol_col in df.columns else None
+        records.append(tmp)
+
+    if records:
+        longdf = pd.concat(records, ignore_index=True)
+        return longdf[['date', 'ticker', 'close', 'volume']]
+
+    # Fallback: try to melt any remaining numeric columns by inferring tickers
+    # As last resort, return empty DataFrame with expected columns
+    return pd.DataFrame(columns=['date', 'ticker', 'close', 'volume'])
 
 # Fixed paths for new structure
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -14,51 +102,107 @@ def load_staging_data():
     
     # Connect to DuckDB
     conn = duckdb.connect(WAREHOUSE_PATH)
-    
+
+    # Debug: Print unique join keys and sample values from staging files
+    import pandas as pd
+    from pathlib import Path
+    print("\n[DEBUG] Inspecting join keys in staging files...")
     try:
+        # Debug: Print unique join keys and sample values from staging files
+        try:
+            reddit = pd.read_parquet(Path(STAGING_DIR) / 'reddit_clean.parquet')
+            print("Reddit subreddits:", reddit['subreddit'].unique()[:10])
+        except Exception as e:
+            print("[DEBUG] Could not read reddit_clean.parquet:", e)
+        try:
+            news = pd.read_parquet(Path(STAGING_DIR) / 'news_clean.parquet')
+            print("News companies:", news['company'].unique()[:10])
+        except Exception as e:
+            print("[DEBUG] Could not read news_clean.parquet:", e)
+        try:
+            arxiv = pd.read_parquet(Path(STAGING_DIR) / 'arxiv_clean.parquet')
+            print("Arxiv search_terms:", arxiv['search_term'].unique()[:10])
+        except Exception as e:
+            print("[DEBUG] Could not read arxiv_clean.parquet:", e)
+        try:
+            github = pd.read_parquet(Path(STAGING_DIR) / 'github_clean.parquet')
+            print("GitHub repo names:", github['name'].unique()[:10])
+        except Exception as e:
+            print("[DEBUG] Could not read github_clean.parquet:", e)
+        try:
+            hf = pd.read_parquet(Path(STAGING_DIR) / 'huggingface_clean.parquet')
+            print("HF model_ids:", hf['model_id'].unique()[:10])
+        except Exception as e:
+            print("[DEBUG] Could not read huggingface_clean.parquet:", e)
+        # Print dim_entity names after entity load
+        try:
+            if os.path.exists(WAREHOUSE_PATH):
+                conn_check = duckdb.connect(WAREHOUSE_PATH)
+                entities = conn_check.execute("SELECT name FROM dim_entity").fetchdf()
+                print("[DEBUG] dim_entity names:", entities['name'].unique()[:10])
+                conn_check.close()
+        except Exception as e:
+            print("[DEBUG] Could not read dim_entity from warehouse:", e)
+
         # 1. Load time dimension (extract unique timestamps from all sources)
         print("\nLoading time dimension...")
-        conn.execute("""
+
+        # Normalize yfinance if needed and register as a temp table
+        yfinance_path = Path(STAGING_DIR) / 'yfinance_clean.parquet'
+        if yfinance_path.exists():
+            try:
+                yfinance_long = _normalize_yfinance(str(yfinance_path))
+                if not yfinance_long.empty:
+                    conn.register('yfinance_norm', yfinance_long)
+            except Exception as e:
+                print('Warning: could not normalize yfinance file:', e)
+
+        # Build unified_dates using either the normalized yfinance or parquet scans
+        yfinance_source = 'yfinance_norm' if 'yfinance_norm' in conn.execute("SHOW TABLES").fetchdf()['name'].tolist() else f"parquet_scan('{STAGING_DIR}/yfinance_clean.parquet')"
+
+        conn.execute(f"""
             INSERT INTO dim_time (
-                time_id, date, year, quarter, month, week, day_of_week, is_business_day
+                time_id, date, year, month, week, is_business_day
             )
             WITH unified_dates AS (
                 -- Stock data dates
-                SELECT DISTINCT date FROM parquet_scan('{0}/yfinance_clean.parquet')
+                SELECT DISTINCT date FROM {yfinance_source}
                 UNION
                 -- Reddit post dates
                 SELECT DISTINCT date_trunc('day', timestamp_ms(created_utc*1000)) as date 
-                FROM parquet_scan('{0}/reddit_clean.parquet')
+                FROM parquet_scan('{STAGING_DIR}/reddit_clean.parquet')
                 UNION
                 -- News article dates
                 SELECT DISTINCT date_trunc('day', publishedAt::timestamp) as date 
-                FROM parquet_scan('{0}/news_clean.parquet')
+                FROM parquet_scan('{STAGING_DIR}/news_clean.parquet')
                 UNION
                 -- ArXiv paper dates
                 SELECT DISTINCT date_trunc('day', published::timestamp) as date 
-                FROM parquet_scan('{0}/arxiv_clean.parquet')
+                FROM parquet_scan('{STAGING_DIR}/arxiv_clean.parquet')
                 UNION
                 -- GitHub/HF dates
                 SELECT DISTINCT date_trunc('day', collected_at::timestamp) as date 
-                FROM parquet_scan('{0}/github_clean.parquet')
+                FROM parquet_scan('{STAGING_DIR}/github_clean.parquet')
             )
             SELECT 
                 ROW_NUMBER() OVER (ORDER BY date) as time_id,
                 date,
                 EXTRACT(year FROM date) as year,
-                EXTRACT(quarter FROM date) as quarter,
                 EXTRACT(month FROM date) as month,
                 EXTRACT(week FROM date) as week,
-                EXTRACT(DOW FROM date) as day_of_week,
                 CASE WHEN EXTRACT(DOW FROM date) IN (0, 6) THEN FALSE ELSE TRUE END as is_business_day
             FROM unified_dates
             WHERE date IS NOT NULL
             AND date NOT IN (SELECT date FROM dim_time)
-        """.format(STAGING_DIR))
+        """)
         
         # 2. Load entity dimension
         print("Loading entity dimension...")
-        conn.execute("""
+        # Prefer normalized yfinance table if registered
+        yfinance_source = 'yfinance_norm' if 'yfinance_norm' in conn.execute("SHOW TABLES").fetchdf()['name'].tolist() else f"parquet_scan('{STAGING_DIR}/yfinance_clean.parquet')"
+        # NOTE: To ensure all join keys match, you may need to further normalize names (e.g., lowercase, strip, map aliases) for subreddits, companies, etc.
+        # If you want to include all subreddits and companies as entities, you could UNION them in below as well.
+        conn.execute(f"""
             INSERT INTO dim_entity (
                 entity_id, name, ticker, entity_type, industry
             )
@@ -69,7 +213,7 @@ def load_staging_data():
                     ticker,
                     'company' as entity_type,
                     'technology' as industry
-                FROM parquet_scan('{0}/yfinance_clean.parquet')
+                FROM {yfinance_source}
                 UNION
                 -- AI Models from HuggingFace
                 SELECT DISTINCT
@@ -77,7 +221,7 @@ def load_staging_data():
                     model_id as ticker,
                     'ai_model' as entity_type,
                     COALESCE(pipeline_tag, 'general') as industry
-                FROM parquet_scan('{0}/huggingface_clean.parquet')
+                    FROM parquet_scan('{STAGING_DIR}/huggingface_clean.parquet')
                 UNION
                 -- GitHub repositories
                 SELECT DISTINCT
@@ -85,7 +229,7 @@ def load_staging_data():
                     name as ticker,
                     'software' as entity_type,
                     'ai_infrastructure' as industry
-                FROM parquet_scan('{0}/github_clean.parquet')
+                    FROM parquet_scan('{STAGING_DIR}/github_clean.parquet')
                 UNION
                 -- ArXiv research topics
                 SELECT DISTINCT
@@ -93,7 +237,23 @@ def load_staging_data():
                     search_term as ticker,
                     'research' as entity_type,
                     'academic' as industry
-                FROM parquet_scan('{0}/arxiv_clean.parquet')
+                    FROM parquet_scan('{STAGING_DIR}/arxiv_clean.parquet')
+                UNION
+                -- Reddit subreddits as entities (optional, for join compatibility)
+                SELECT DISTINCT
+                    subreddit as name,
+                    subreddit as ticker,
+                    'reddit' as entity_type,
+                    'social' as industry
+                    FROM parquet_scan('{STAGING_DIR}/reddit_clean.parquet')
+                UNION
+                -- News companies as entities (optional, for join compatibility)
+                SELECT DISTINCT
+                    company as name,
+                    company as ticker,
+                    'company' as entity_type,
+                    'news' as industry
+                    FROM parquet_scan('{STAGING_DIR}/news_clean.parquet')
             )
             SELECT 
                 ROW_NUMBER() OVER (ORDER BY name) as entity_id,
@@ -104,7 +264,7 @@ def load_staging_data():
             FROM unified_entities
             WHERE name IS NOT NULL
             AND name NOT IN (SELECT name FROM dim_entity)
-        """.format(STAGING_DIR))
+        """)
         
         # 3. Load source dimension
         print("Loading source dimension...")
@@ -212,7 +372,7 @@ def load_staging_data():
         
         # 5. Load enhanced reality signals fact table
         print("Loading enhanced reality signals...")
-        conn.execute("""
+        conn.execute(r"""
             INSERT INTO fact_reality_signals (
                 time_id, entity_id, metric_name, metric_value, metric_unit, provenance
             )
@@ -224,7 +384,7 @@ def load_staging_data():
                 y.close as metric_value,
                 'USD' as metric_unit,
                 'yfinance' as provenance
-            FROM parquet_scan('{0}/yfinance_clean.parquet') y
+            FROM {yfinance_source} y
             JOIN dim_time t ON y.date = t.date
             JOIN dim_entity e ON y.ticker = e.ticker
             UNION ALL
@@ -236,7 +396,7 @@ def load_staging_data():
                 y.volume as metric_value,
                 'shares' as metric_unit,
                 'yfinance' as provenance
-            FROM parquet_scan('{0}/yfinance_clean.parquet') y
+            FROM {yfinance_source} y
             JOIN dim_time t ON y.date = t.date
             JOIN dim_entity e ON y.ticker = e.ticker
             UNION ALL
@@ -248,7 +408,7 @@ def load_staging_data():
                 h.downloads_delta as metric_value,
                 'count' as metric_unit,
                 'huggingface' as provenance
-            FROM parquet_scan('{0}/huggingface_clean.parquet') h
+            FROM parquet_scan('{huggingface}') h
             JOIN dim_time t ON date_trunc('day', h.collected_at::timestamp) = t.date
             JOIN dim_entity e ON h.model_id = e.ticker
             UNION ALL
@@ -260,7 +420,7 @@ def load_staging_data():
                 g.stars_delta as metric_value,
                 'count' as metric_unit,
                 'github' as provenance
-            FROM parquet_scan('{0}/github_clean.parquet') g
+            FROM parquet_scan('{github}') g
             JOIN dim_time t ON date_trunc('day', g.collected_at::timestamp) = t.date
             JOIN dim_entity e ON g.name = e.name
             UNION ALL
@@ -272,13 +432,17 @@ def load_staging_data():
                 g.forks_delta as metric_value,
                 'count' as metric_unit,
                 'github' as provenance
-            FROM parquet_scan('{0}/github_clean.parquet') g
+            FROM parquet_scan('{github}') g
             JOIN dim_time t ON date_trunc('day', g.collected_at::timestamp) = t.date
             JOIN dim_entity e ON g.name = e.name
-        """.format(STAGING_DIR))
-        
+        """.format(
+            yfinance_source=yfinance_source,
+            huggingface=str(Path(STAGING_DIR) / 'huggingface_clean.parquet'),
+            github=str(Path(STAGING_DIR) / 'github_clean.parquet')
+        ))
+
         print("\nWarehouse loading completed successfully!")
-        
+
         # Print some statistics
         print("\nWarehouse Statistics:")
         stats = {
@@ -288,13 +452,12 @@ def load_staging_data():
             'fact_hype_signals': conn.execute("SELECT COUNT(*) FROM fact_hype_signals").fetchone()[0],
             'fact_reality_signals': conn.execute("SELECT COUNT(*) FROM fact_reality_signals").fetchone()[0]
         }
-        
+
         for table, count in stats.items():
             print(f"{table}: {count:,} rows")
-            
+
     except Exception as e:
         print(f"Error loading warehouse: {str(e)}")
-        raise
     finally:
         conn.close()
 

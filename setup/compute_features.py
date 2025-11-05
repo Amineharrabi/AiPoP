@@ -124,27 +124,37 @@ def compute_hype_features(conn: duckdb.DuckDBPyConnection) -> None:
         FROM daily_metrics
     ),
     -- Cross-entity correlation for trending metrics
-    entity_correlations AS (
-        SELECT 
+    -- Step 1: compute per-pair rolling correlations using a window function partitioned by the entity pair
+    entity_pair_corrs AS (
+        SELECT
             rm1.time_id,
-            rm1.entity_id,
-            AVG(
-                CORR(rm1.github_trending_score, rm2.github_trending_score) OVER (
-                    ORDER BY rm1.date 
-                    ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
-                )
-            ) as github_trend_correlation,
-            AVG(
-                CORR(rm1.hf_trending_score, rm2.hf_trending_score) OVER (
-                    ORDER BY rm1.date 
-                    ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
-                )
-            ) as hf_trend_correlation
+            rm1.date,
+            rm1.entity_id AS entity_id,
+            rm2.entity_id AS other_entity_id,
+            CORR(rm1.github_trending_score, rm2.github_trending_score) OVER (
+                PARTITION BY rm1.entity_id, rm2.entity_id
+                ORDER BY rm1.date
+                ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+            ) AS pair_github_corr,
+            CORR(rm1.hf_trending_score, rm2.hf_trending_score) OVER (
+                PARTITION BY rm1.entity_id, rm2.entity_id
+                ORDER BY rm1.date
+                ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+            ) AS pair_hf_corr
         FROM rolling_metrics rm1
-        JOIN rolling_metrics rm2 
-            ON rm1.date = rm2.date 
+        JOIN rolling_metrics rm2
+            ON rm1.date = rm2.date
             AND rm1.entity_id != rm2.entity_id
-        GROUP BY rm1.time_id, rm1.entity_id
+    ),
+    -- Step 2: average the per-pair correlations to get an overall correlation-per-entity
+    entity_correlations AS (
+        SELECT
+            time_id,
+            entity_id,
+            AVG(pair_github_corr) AS github_trend_correlation,
+            AVG(pair_hf_corr) AS hf_trend_correlation
+        FROM entity_pair_corrs
+        GROUP BY time_id, entity_id
     )
     SELECT 
         time_id,
@@ -377,7 +387,7 @@ def compute_combined_features(conn: duckdb.DuckDBPyConnection) -> None:
     JOIN reality_features r 
         ON h.time_id = r.time_id 
         AND h.entity_id = r.entity_id
-    ORDER BY date, entity_id;
+    ORDER BY h.date, h.entity_id;
     """)
 
 def main():

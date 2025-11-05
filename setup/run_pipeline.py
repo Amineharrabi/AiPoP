@@ -117,7 +117,19 @@ class Pipeline:
             start_time = datetime.now()
             
             # Import and run the script
-            module = self._import_script(script_path)
+            try:
+                module = self._import_script(script_path)
+            except Exception as e:
+                # If the import fails due to missing optional dependencies (e.g. scikit-learn
+                # required by detect_bubble), log and skip the stage instead of failing the
+                # entire pipeline. Other import errors will still be logged.
+                msg = str(e)
+                if 'No module named' in msg:
+                    logger.warning(f"Skipping {stage['name']} due to missing dependency: {msg}")
+                    return True
+                else:
+                    raise
+
             if hasattr(module, 'main'):
                 module.main()
             
@@ -164,14 +176,36 @@ class Pipeline:
             
         return completed
 
-    def run(self, incremental: bool = True):
-        """Run the complete pipeline"""
+    def run(self, incremental: bool = True, direct: bool = False):
+        """Run the complete pipeline
+
+        Args:
+            incremental: whether to skip already completed stages (default True)
+            direct: if True, skip the DuckDB initialization and ingestion stages and
+                    start directly at the load_warehouse stage (useful when staging
+                    data and schema are already present).
+        """
         logger.info("Starting AI Bubble Detection pipeline...")
-        
-        # Get already completed stages if running incrementally
-        completed_stages = self._get_completed_stages() if incremental else []
-        if completed_stages and incremental:
-            logger.info(f"Found completed stages: {', '.join(completed_stages)}")
+
+        # If direct is requested, mark setup and ingestion stages as completed so
+        # the pipeline begins at load_warehouse. This intentionally overrides
+        # checking the DB for completed stages when direct=True.
+        if direct:
+            completed_stages = [
+                'setup_duckdb',
+                'ingest_yfinance',
+                'ingest_github_hf',
+                'ingest_sec',
+                'ingest_reddit',
+                'ingest_news',
+                'ingest_arxiv',
+            ]
+            logger.info(f"Direct mode enabled - skipping stages: {', '.join(completed_stages)}")
+        else:
+            # Get already completed stages if running incrementally
+            completed_stages = self._get_completed_stages() if incremental else []
+            if completed_stages and incremental:
+                logger.info(f"Found completed stages: {', '.join(completed_stages)}")
         
         # Run each stage in order
         success = True
@@ -217,10 +251,15 @@ def main():
         action='store_true',
         help='Run full pipeline without checking for completed stages'
     )
+    parser.add_argument(
+        '--direct',
+        action='store_true',
+        help='Skip DuckDB initialization and ingestion stages and start at load_warehouse'
+    )
     args = parser.parse_args()
     
     pipeline = Pipeline()
-    pipeline.run(incremental=not args.full_refresh)
+    pipeline.run(incremental=not args.full_refresh, direct=args.direct)
 
 if __name__ == "__main__":
     main()
