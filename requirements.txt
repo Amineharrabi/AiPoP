@@ -22,6 +22,7 @@ tzdata==2025.2
 urllib3==2.5.0
 websockets==15.0.1
 yfinance==0.2.66
+arxiv==2.3.0
 
 # Additional packages used by ETL scripts
 praw==7.9.0

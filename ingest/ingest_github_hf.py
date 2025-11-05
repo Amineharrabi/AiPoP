@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import pandas as pd
 import requests
 from datetime import datetime, timedelta
@@ -144,119 +145,183 @@ class DeltaCalculator:
 
 def get_github_repo_data(repo):
     """Fetch repository data from GitHub API with progress metrics and delta calculations"""
-    url = f'https://api.github.com/repos/{repo}'
     headers = {'Authorization': f'token {GITHUB_TOKEN}'}
-    
-    try:
-        # Get repo info
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        repo_data = response.json()
-        
-        # Get recent commits (last 30 days)
-        commits_url = f'{url}/commits'
-        since_date = (datetime.now() - timedelta(days=30)).isoformat()
-        commits_params = {'since': since_date}
-        commits_response = requests.get(commits_url, headers=headers, params=commits_params)
-        commits_response.raise_for_status()
-        recent_commits = commits_response.json()
-        
-        # Get recent releases
-        releases_url = f'{url}/releases'
-        releases_response = requests.get(releases_url, headers=headers)
-        releases_response.raise_for_status()
-        recent_releases = releases_response.json()
-        
-        # Get contributor stats
-        contributors_url = f'{url}/contributors'
-        contributors_response = requests.get(contributors_url, headers=headers)
-        contributors_response.raise_for_status()
-        contributors = contributors_response.json()
-        
-        # Calculate activity metrics
-        monthly_commit_count = len(recent_commits)
-        contributor_count = len(contributors)
-        active_contributors = sum(1 for c in contributors if c.get('contributions', 0) > 0)
-        
-        # Calculate release velocity
-        if len(recent_releases) >= 2:
-            latest_release_date = datetime.fromisoformat(recent_releases[0]['published_at'].replace('Z', '+00:00'))
-            previous_release_date = datetime.fromisoformat(recent_releases[1]['published_at'].replace('Z', '+00:00'))
-            days_between_releases = (latest_release_date - previous_release_date).days
-            release_frequency = 30 / days_between_releases if days_between_releases > 0 else 0
-        else:
-            release_frequency = 0
-        
-        # Prepare current metrics for delta calculation
-        current_metrics = {
-            'name': repo,
-            'stars': repo_data.get('stargazers_count'),
-            'forks': repo_data.get('forks_count'),
-            'open_issues': repo_data.get('open_issues_count'),
-            'watchers': repo_data.get('subscribers_count'),
-            'monthly_commits': monthly_commit_count,
-            'release_frequency': release_frequency,
-            'total_contributors': contributor_count,
-            'active_contributors': active_contributors
+
+    def repo_variants(r):
+        """Yield normalized repo id variants to try when the raw repo string contains extra path segments."""
+        r = str(r).strip()
+        # Try original first
+        yield r
+        parts = [p for p in r.split('/') if p]
+        # If more than 2 parts, try first two and last two as likely repo identifiers
+        if len(parts) > 2:
+            yield '/'.join(parts[:2])
+            yield '/'.join(parts[-2:])
+
+    failed_repos_file = os.path.join(RAW_DIR, 'failed_repos.json')
+
+    # Helper to append a failed repo entry
+    def record_failure(original, tried_variants, reason):
+        entry = {
+            'original': original,
+            'tried': tried_variants,
+            'reason': str(reason),
+            'collected_at': datetime.now().astimezone().isoformat()
         }
-        
-        # Calculate deltas using DataManager
-        deltas = DeltaCalculator().data_manager.compute_github_deltas(current_metrics)
-        
-        # Progress Metrics with enhanced delta tracking
-        progress_metrics = {
-            # Basic Stats
-            'name': repo,
-            'stars': repo_data.get('stargazers_count'),
-            'forks': repo_data.get('forks_count'),
-            'open_issues': repo_data.get('open_issues_count'),
-            'watchers': repo_data.get('subscribers_count'),
-            
-            # Delta Metrics (NEW - for trending analysis)
-            'stars_delta': deltas['stars_delta'],
-            'forks_delta': deltas['forks_delta'],
-            'activity_change': deltas['activity_change'],
-            'momentum_score': deltas['momentum_score'],
-            
-            # Activity Metrics
-            'monthly_commits': monthly_commit_count,
-            'monthly_release_frequency': release_frequency,
-            'total_contributors': contributor_count,
-            'active_contributors': active_contributors,
-            'contributor_activity_ratio': active_contributors / contributor_count if contributor_count > 0 else 0,
-            
-            # Community Health
-            'stars_per_fork': repo_data.get('stargazers_count', 0) / repo_data.get('forks_count', 1),
-            'issues_per_star': repo_data.get('open_issues_count', 0) / repo_data.get('stargazers_count', 1),
-            'community_size': repo_data.get('stargazers_count', 0) + repo_data.get('forks_count', 0),
-            
-            # Project Maturity
-            'latest_commit': recent_commits[0]['commit']['committer']['date'] if recent_commits else None,
-            'latest_release': recent_releases[0]['published_at'] if recent_releases else None,
-            'created_at': repo_data.get('created_at'),
-            'updated_at': repo_data.get('updated_at'),
-            'project_age_days': (datetime.now() - datetime.fromisoformat(repo_data['created_at'].replace('Z', '+00:00'))).days,
-            
-            # Technical Details
-            'topics': repo_data.get('topics', []),
-            'license': repo_data.get('license', {}).get('name'),
-            
-            # Enhanced Composite Scores (0-1 scale)
-            'activity_score': (monthly_commit_count / 100 + release_frequency / 2) / 2,
-            'community_score': (active_contributors / 50 + (repo_data.get('stargazers_count', 0) / 10000)) / 2,
-            'maturity_score': min(repo_data.get('stargazers_count', 0) / 10000, 1.0),
-            
-            # NEW: Trending Score based on deltas
-            'trending_score': abs(deltas['momentum_score']) + abs(deltas['activity_change']) * 0.5,
-            
-            'collected_at': datetime.now().astimezone().replace(microsecond=0).isoformat()
-        }
-        
-        return progress_metrics
-    
-    except Exception as e:
-        print(f"Error fetching data for {repo}: {str(e)}")
-        return None
+        try:
+            os.makedirs(os.path.dirname(failed_repos_file), exist_ok=True)
+            with open(failed_repos_file, 'a', encoding='utf-8') as fh:
+                fh.write(json.dumps(entry) + '\n')
+        except Exception:
+            # Don't fail the whole ingest if we can't write failures
+            pass
+
+    tried = []
+    for variant in repo_variants(repo):
+        tried.append(variant)
+        url = f'https://api.github.com/repos/{variant}'
+        try:
+            response = requests.get(url, headers=headers, timeout=20)
+            if response.status_code == 404:
+                # Not found — try next variant
+                continue
+            if response.status_code == 403:
+                # Possibly rate-limited. If there's a Retry-After or reset header, wait briefly and retry.
+                reset = response.headers.get('X-RateLimit-Reset')
+                retry_after = response.headers.get('Retry-After')
+                wait_seconds = 10
+                try:
+                    if retry_after:
+                        wait_seconds = int(retry_after)
+                    elif reset:
+                        reset_ts = int(reset)
+                        wait_seconds = max(1, reset_ts - int(time.time()))
+                except Exception:
+                    wait_seconds = 10
+                print(f"Rate-limited by GitHub when fetching {variant}; sleeping {wait_seconds}s then retrying...")
+                time.sleep(min(wait_seconds, 60))
+                # Try once more
+                response = requests.get(url, headers=headers, timeout=20)
+
+            response.raise_for_status()
+            repo_data = response.json()
+
+            # If we reached here, variant worked — now collect other endpoints based on the same variant
+            # Get recent commits (last 30 days)
+            commits_url = f'{url}/commits'
+            since_date = (datetime.now().astimezone() - timedelta(days=30)).isoformat()
+            commits_params = {'since': since_date}
+            commits_response = requests.get(commits_url, headers=headers, params=commits_params, timeout=20)
+            recent_commits = commits_response.json() if commits_response.ok else []
+
+            # Get recent releases
+            releases_url = f'{url}/releases'
+            releases_response = requests.get(releases_url, headers=headers, timeout=20)
+            recent_releases = releases_response.json() if releases_response.ok else []
+
+            # Get contributor stats
+            contributors_url = f'{url}/contributors'
+            contributors_response = requests.get(contributors_url, headers=headers, timeout=20)
+            contributors = contributors_response.json() if contributors_response.ok else []
+
+            # Calculate activity metrics
+            monthly_commit_count = len(recent_commits)
+            contributor_count = len(contributors)
+            active_contributors = sum(1 for c in contributors if c.get('contributions', 0) > 0)
+
+            # Calculate release velocity
+            if len(recent_releases) >= 2:
+                try:
+                    latest_release_date = datetime.fromisoformat(recent_releases[0]['published_at'].replace('Z', '+00:00'))
+                    previous_release_date = datetime.fromisoformat(recent_releases[1]['published_at'].replace('Z', '+00:00'))
+                    days_between_releases = (latest_release_date - previous_release_date).days
+                    release_frequency = 30 / days_between_releases if days_between_releases > 0 else 0
+                except Exception:
+                    release_frequency = 0
+            else:
+                release_frequency = 0
+
+            # Prepare current metrics for delta calculation
+            current_metrics = {
+                'name': variant,
+                'stars': repo_data.get('stargazers_count'),
+                'forks': repo_data.get('forks_count'),
+                'open_issues': repo_data.get('open_issues_count'),
+                'watchers': repo_data.get('subscribers_count'),
+                'monthly_commits': monthly_commit_count,
+                'release_frequency': release_frequency,
+                'total_contributors': contributor_count,
+                'active_contributors': active_contributors
+            }
+
+            # Calculate deltas using DataManager
+            deltas = DeltaCalculator().data_manager.compute_github_deltas(current_metrics)
+
+            # Progress Metrics with enhanced delta tracking
+            progress_metrics = {
+                'name': variant,
+                'stars': repo_data.get('stargazers_count'),
+                'forks': repo_data.get('forks_count'),
+                'open_issues': repo_data.get('open_issues_count'),
+                'watchers': repo_data.get('subscribers_count'),
+                'stars_delta': deltas['stars_delta'],
+                'forks_delta': deltas['forks_delta'],
+                'activity_change': deltas['activity_change'],
+                'momentum_score': deltas['momentum_score'],
+                'monthly_commits': monthly_commit_count,
+                'monthly_release_frequency': release_frequency,
+                'total_contributors': contributor_count,
+                'active_contributors': active_contributors,
+                'contributor_activity_ratio': active_contributors / contributor_count if contributor_count > 0 else 0,
+                'stars_per_fork': repo_data.get('stargazers_count', 0) / repo_data.get('forks_count', 1),
+                'issues_per_star': repo_data.get('open_issues_count', 0) / repo_data.get('stargazers_count', 1),
+                'community_size': repo_data.get('stargazers_count', 0) + repo_data.get('forks_count', 0),
+                'latest_commit': recent_commits[0]['commit']['committer']['date'] if recent_commits else None,
+                'latest_release': recent_releases[0]['published_at'] if recent_releases else None,
+                'created_at': repo_data.get('created_at'),
+                'updated_at': repo_data.get('updated_at'),
+                'project_age_days': None,
+                'topics': repo_data.get('topics', []),
+                'license': repo_data.get('license', {}).get('name'),
+                'activity_score': (monthly_commit_count / 100 + release_frequency / 2) / 2,
+                'community_score': (active_contributors / 50 + (repo_data.get('stargazers_count', 0) / 10000)) / 2,
+                'maturity_score': min(repo_data.get('stargazers_count', 0) / 10000, 1.0),
+                'trending_score': abs(deltas['momentum_score']) + abs(deltas['activity_change']) * 0.5,
+                'collected_at': datetime.now().astimezone().replace(microsecond=0).isoformat(),
+            }
+
+            # Safely compute project_age_days using timezone-aware datetimes
+            try:
+                created_ts = repo_data.get('created_at')
+                if created_ts:
+                    created_dt = datetime.fromisoformat(created_ts.replace('Z', '+00:00')).astimezone()
+                    progress_metrics['project_age_days'] = (datetime.now().astimezone() - created_dt).days
+                else:
+                    progress_metrics['project_age_days'] = None
+            except Exception:
+                progress_metrics['project_age_days'] = None
+
+            return progress_metrics
+
+        except requests.HTTPError as he:
+            # If this was a 404 we already continued above; otherwise log and try next variant
+            status = None
+            try:
+                status = he.response.status_code
+            except Exception:
+                status = None
+            # For other HTTP errors, break/stop trying variants
+            print(f"HTTP error fetching {variant} (status={status}): {str(he)}")
+            continue
+        except Exception as e:
+            # Generic exception — continue to next variant
+            print(f"Error fetching data for {variant}: {str(e)}")
+            continue
+
+    # If we reach here, all variants failed
+    record_failure(repo, tried, 'all_variants_failed')
+    print(f"Failed to fetch data for {repo} after trying variants: {tried}")
+    return None
 
 def get_huggingface_model_data(model_id):
     """Fetch model data from HuggingFace Hub API with delta calculations"""
@@ -384,7 +449,7 @@ def discover_ai_models():
                     if model.get('lastModified'):
                         last_modified = datetime.fromisoformat(
                             model['lastModified'].replace('Z', '+00:00')
-                        )
+                        ).astimezone()
                     else:
                         continue
                         

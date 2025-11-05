@@ -9,7 +9,7 @@ from typing import List, Dict, Optional
 import pandas as pd
 from sec_api import QueryApi, RenderApi
 from dotenv import load_dotenv
-from scripts.data_manager import DataManager
+from setup.data_manager import DataManager
 import duckdb
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from tqdm import tqdm

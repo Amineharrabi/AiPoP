@@ -36,7 +36,7 @@ SEARCH_TERMS = [
     'AI safety'
 ]
 
-def fetch_papers(search_query, max_results=100):
+def fetch_papers(search_query, max_results=50):
     """Fetch papers from arXiv based on search query with enhanced innovation tracking"""
     try:
         # Create search client
@@ -50,7 +50,7 @@ def fetch_papers(search_query, max_results=100):
         results = []
         for paper in tqdm(search.results(), desc=f"Fetching {search_query}", leave=False):
             # Only include papers from 2020 onwards
-            if paper.published.year < 2020:
+            if paper.published.year < 2023:
                 continue
 
             # Extract authors

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import logging
-from scripts.run_pipeline import Pipeline
+from setup.run_pipeline import Pipeline
 
 # Configure logging
 logging.basicConfig(

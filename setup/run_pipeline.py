@@ -14,44 +14,81 @@ logger = logging.getLogger(__name__)
 
 class Pipeline:
     def __init__(self):
-        self.scripts_dir = os.path.dirname(__file__)
-        self.project_dir = os.path.dirname(self.scripts_dir)
+        self.setup_dir = os.path.dirname(__file__)
+        self.project_dir = os.path.dirname(self.setup_dir)
+        self.ingest_dir = os.path.join(self.project_dir, 'ingest')
+        
+        # Add project root to Python path for package imports
+        if self.project_dir not in sys.path:
+            sys.path.insert(0, self.project_dir)
         
         # Define pipeline stages and their dependencies
         self.pipeline_stages = [
             {
                 'name': 'setup_duckdb',
                 'script': 'setup_duckdb.py',
+                'script_dir': 'setup',
                 'dependencies': []
             },
             {
                 'name': 'ingest_yfinance',
                 'script': 'ingest_yfinance.py',
+                'script_dir': 'ingest',
+                'dependencies': ['setup_duckdb']
+            },
+            {
+                'name': 'ingest_github_hf',
+                'script': 'ingest_github_hf.py',
+                'script_dir': 'ingest',
                 'dependencies': ['setup_duckdb']
             },
             {
                 'name': 'ingest_sec',
                 'script': 'ingest_sec.py',
+                'script_dir': 'ingest',
                 'dependencies': ['setup_duckdb']
             },
             {
+                'name': 'ingest_reddit',
+                'script': 'ingest_reddit.py',
+                'script_dir': 'ingest',
+                'dependencies': ['setup_duckdb']
+            },
+            {
+                'name': 'ingest_news',
+                'script': 'ingest_news.py',
+                'script_dir': 'ingest',
+                'dependencies': ['setup_duckdb']
+            },
+            {
+                'name': 'ingest_arxiv',
+                'script': 'ingest_arxiv.py',
+                'script_dir': 'ingest',
+                'dependencies': ['setup_duckdb']
+            },
+            
+            {
                 'name': 'load_warehouse',
                 'script': 'load_warehouse.py',
-                'dependencies': ['ingest_yfinance', 'ingest_sec']
+                'script_dir': 'setup',
+                'dependencies': ['ingest_yfinance', 'ingest_sec', 'ingest_github_hf']
             },
             {
                 'name': 'compute_features',
                 'script': 'compute_features.py',
+                'script_dir': 'setup',
                 'dependencies': ['load_warehouse']
             },
             {
                 'name': 'compute_indices',
                 'script': 'compute_indices.py',
+                'script_dir': 'setup',
                 'dependencies': ['compute_features']
             },
             {
                 'name': 'detect_bubble',
                 'script': 'detect_bubble.py',
+                'script_dir': 'setup',
                 'dependencies': ['compute_indices']
             }
         ]
@@ -72,7 +109,8 @@ class Pipeline:
 
     def _run_stage(self, stage: dict) -> bool:
         """Run a single pipeline stage"""
-        script_path = os.path.join(self.scripts_dir, stage['script'])
+        script_dir = self.setup_dir if stage['script_dir'] == 'setup' else self.ingest_dir
+        script_path = os.path.join(script_dir, stage['script'])
         
         try:
             logger.info(f"Running {stage['name']}...")

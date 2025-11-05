@@ -27,6 +27,10 @@ class DataManager:
                     'huggingface': {},
                     'arxiv': {}
                 }
+                ,
+                # store last known metrics for deltas
+                'github_metrics': {},
+                'huggingface_metrics': {}
             })
 
     def load_state(self) -> Dict:
@@ -140,3 +144,85 @@ class DataManager:
         interval = self.get_update_interval(data_type)
         
         return current_time - last_update_dt >= interval
+
+    def compute_github_deltas(self, current_metrics: Dict) -> Dict:
+        """Compute deltas for GitHub repository metrics and persist the current snapshot.
+
+        Returns a dict containing at least: stars_delta, forks_delta, activity_change, momentum_score
+        """
+        name = current_metrics.get('name')
+        if not name:
+            return {'stars_delta': 0, 'forks_delta': 0, 'activity_change': 0, 'momentum_score': 0}
+
+        state = self.load_state()
+        github_metrics = state.get('github_metrics', {})
+        prev = github_metrics.get(name, {})
+
+        prev_stars = prev.get('stars', 0)
+        prev_forks = prev.get('forks', 0)
+        prev_activity = prev.get('activity_score', 0)
+
+        stars_delta = int(current_metrics.get('stars', 0) - prev_stars)
+        forks_delta = int(current_metrics.get('forks', 0) - prev_forks)
+        activity_change = float(current_metrics.get('activity_score', 0) - prev_activity)
+
+        # Simple momentum score: activity change scaled by sign of stars change
+        momentum_score = activity_change * (1 if stars_delta >= 0 else -1)
+
+        # Persist current snapshot for future delta calculations
+        github_metrics[name] = {
+            'stars': int(current_metrics.get('stars', 0)),
+            'forks': int(current_metrics.get('forks', 0)),
+            'activity_score': float(current_metrics.get('activity_score', 0)),
+            'collected_at': datetime.now().isoformat()
+        }
+        state['github_metrics'] = github_metrics
+        self.save_state(state)
+
+        return {
+            'stars_delta': stars_delta,
+            'forks_delta': forks_delta,
+            'activity_change': activity_change,
+            'momentum_score': momentum_score
+        }
+
+    def compute_hf_deltas(self, current_metrics: Dict) -> Dict:
+        """Compute deltas for HuggingFace model metrics and persist the current snapshot.
+
+        Returns a dict containing at least: downloads_delta, likes_delta, trending_score
+        """
+        model_id = current_metrics.get('model_id')
+        if not model_id:
+            return {'downloads_delta': 0, 'likes_delta': 0, 'trending_score': 0}
+
+        state = self.load_state()
+        hf_metrics = state.get('huggingface_metrics', {})
+        prev = hf_metrics.get(model_id, {})
+
+        prev_downloads = prev.get('downloads', 0)
+        prev_likes = prev.get('likes', 0)
+
+        downloads_delta = int(current_metrics.get('downloads', 0) - prev_downloads)
+        likes_delta = int(current_metrics.get('likes', 0) - prev_likes)
+
+        # Simple trending score: normalized sum of deltas
+        trending_score = 0.0
+        try:
+            trending_score = (downloads_delta / max(prev_downloads, 1)) * 0.6 + (likes_delta / max(prev_likes, 1)) * 0.4
+        except Exception:
+            trending_score = float(downloads_delta + likes_delta)
+
+        # Persist current snapshot
+        hf_metrics[model_id] = {
+            'downloads': int(current_metrics.get('downloads', 0)),
+            'likes': int(current_metrics.get('likes', 0)),
+            'collected_at': datetime.now().isoformat()
+        }
+        state['huggingface_metrics'] = hf_metrics
+        self.save_state(state)
+
+        return {
+            'downloads_delta': downloads_delta,
+            'likes_delta': likes_delta,
+            'trending_score': trending_score
+        }

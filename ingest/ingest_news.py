@@ -54,13 +54,33 @@ def get_news_articles(query, from_date, to_date):
         'to': to_date,
         'language': 'en',
         'sortBy': 'publishedAt',
+        'pageSize': 100,  # Maximum page size
         'apiKey': NEWS_API_KEY
     }
     
     try:
         response = requests.get(url, params=params)
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        
+        if data.get('status') != 'ok':
+            print(f"API Error for query '{query}': {data.get('message', 'Unknown error')}")
+            return None
+            
+        if not data.get('articles'):
+            print(f"No articles found for query '{query}'")
+            return None
+            
+        print(f"Found {len(data['articles'])} articles for query '{query}'")
+        return data
+        
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 429:  # Rate limit
+            print("Rate limit hit, waiting 1 second...")
+            time.sleep(1)
+            return get_news_articles(query, from_date, to_date)  # Retry
+        print(f"HTTP Error fetching news for query '{query}': {str(e)}")
+        return None
     except Exception as e:
         print(f"Error fetching news for query '{query}': {str(e)}")
         return None
@@ -74,73 +94,95 @@ def main():
     start_date = end_date - timedelta(days=28)
     
     all_articles = []
+    total_processed = 0
     
     # Get news for each company with enhanced AI tracking
     for company in tqdm(COMPANIES, desc="Fetching company news"):
         # Combine company name with AI keywords for better coverage
         query = f'({company}) AND ({" OR ".join(AI_KEYWORDS)})'
         
-        response = get_news_articles(
-            query,
-            from_date=start_date.strftime('%Y-%m-%d'),
-            to_date=end_date.strftime('%Y-%m-%d')
-        )
-        
-        if response and response.get('articles'):
-            articles = response['articles']
+        try:
+            response = get_news_articles(
+                query,
+                from_date=start_date.strftime('%Y-%m-%d'),
+                to_date=end_date.strftime('%Y-%m-%d')
+            )
+            
+            if not response:
+                print(f"No response for {company}")
+                continue
+            
+            articles = response.get('articles', [])
+            if not articles:
+                print(f"No articles found for {company}")
+                continue
+            
+            print(f"Processing {len(articles)} articles for {company}")
+            company_articles = []
             
             # Process each article with enhanced sentiment analysis
             for article in articles:
+                title = article.get('title', '').strip()
+                description = article.get('description', '').strip()
+                
+                # Skip articles with no content
+                if not title and not description:
+                    continue
+                
                 # Combine title and description for sentiment analysis
-                text = f"{article.get('title', '')} {article.get('description', '')}"
+                text = f"{title} {description}"
                 sentiment = analyzer.polarity_scores(text)
                 
-                # Count AI keyword mentions for weighted sentiment
+                # Count AI keyword mentions
                 ai_mentions = sum(1 for keyword in AI_KEYWORDS if keyword.lower() in text.lower())
                 
-                # Calculate sentiment intensity and confidence
+                # Skip articles with no AI relevance
+                if ai_mentions == 0:
+                    continue
+                
+                # Calculate metrics
                 sentiment_score = sentiment['compound']
                 sentiment_confidence = max(sentiment['pos'], sentiment['neg'])
                 
-                # Determine article impact based on source and engagement proxy
+                # Determine article impact
                 source_name = article.get('source', {}).get('name', '')
-                impact_score = 1.0  # Base score
-                if any(tech_site in source_name.lower() for tech_site in ['tech', 'reuters', 'bloomberg', 'cnbc']):
-                    impact_score = 1.5  # Higher impact for major tech/business outlets
+                impact_score = 1.5 if any(site in source_name.lower() 
+                                        for site in ['tech', 'reuters', 'bloomberg', 'cnbc']) else 1.0
                 
                 record = {
                     'company': company,
                     'publishedAt': article.get('publishedAt'),
-                    'title': article.get('title'),
-                    'description': article.get('description'),
+                    'title': title,
+                    'description': description,
                     'url': article.get('url'),
                     'source': source_name,
-                    
-                    # Enhanced sentiment analysis
                     'sentiment': sentiment_score,
                     'sentiment_pos': sentiment['pos'],
                     'sentiment_neg': sentiment['neg'],
                     'sentiment_neu': sentiment['neu'],
                     'sentiment_confidence': sentiment_confidence,
-                    
-                    # AI-specific metrics
                     'ai_mentions': ai_mentions,
-                    'ai_weighted_sentiment': sentiment_score * (1 + ai_mentions * 0.1),  # Boost AI-weighted sentiment
-                    
-                    # Impact and relevance
+                    'ai_weighted_sentiment': sentiment_score * (1 + ai_mentions * 0.1),
                     'impact_score': impact_score,
-                    'is_tech_relevant': ai_mentions > 0,
-                    
-                    # Text analysis
-                    'title_length': len(article.get('title', '')),
-                    'description_length': len(article.get('description', '')),
-                    'has_ai_keywords': ai_mentions > 0
+                    'is_tech_relevant': True,
+                    'title_length': len(title),
+                    'description_length': len(description),
+                    'has_ai_keywords': True
                 }
                 
-                all_articles.append(record)
+                company_articles.append(record)
+                total_processed += 1
             
+            if company_articles:
+                print(f"Found {len(company_articles)} relevant articles for {company}")
+                all_articles.extend(company_articles)
+            
+        except Exception as e:
+            print(f"Error processing company {company}: {str(e)}")
+            continue
+        
         # Respect API rate limits
-        time.sleep(0.1)
+        time.sleep(3)
     
     if all_articles:
         # Save raw data

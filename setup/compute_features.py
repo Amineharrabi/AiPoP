@@ -12,6 +12,19 @@ def compute_hype_features(conn: duckdb.DuckDBPyConnection) -> None:
     """Compute comprehensive hype-related features from all fact_hype_signals"""
     print("Computing enhanced hype features from all data sources...")
     
+    # First verify the required tables exist
+    tables = conn.execute("""
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_name IN ('fact_hype_signals', 'dim_time', 'dim_entity')
+    """).fetchall()
+    required_tables = {'fact_hype_signals', 'dim_time', 'dim_entity'}
+    existing_tables = {t[0] for t in tables}
+    missing_tables = required_tables - existing_tables
+    
+    if missing_tables:
+        raise Exception(f"Missing required tables: {missing_tables}")
+    
     conn.execute("""
     -- Create a temporary view for comprehensive hype features
     CREATE OR REPLACE TABLE hype_features AS
@@ -108,6 +121,7 @@ def compute_hype_features(conn: duckdb.DuckDBPyConnection) -> None:
                 ORDER BY date 
                 ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
             ) as news_sentiment_volatility
+        FROM daily_metrics
     ),
     -- Cross-entity correlation for trending metrics
     entity_correlations AS (
@@ -250,6 +264,7 @@ def compute_reality_features(conn: duckdb.DuckDBPyConnection) -> None:
             -- Cumulative delta metrics
             SUM(github_stars_delta) OVER (PARTITION BY entity_id ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) as github_stars_cumulative_delta,
             SUM(hf_downloads_delta) OVER (PARTITION BY entity_id ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) as hf_downloads_cumulative_delta
+    FROM daily_metrics
     )
     SELECT 
         time_id,
@@ -390,23 +405,27 @@ def main():
             
         # Show sample of multi-source integration
         print("\nSample of multi-source integration:")
-        sample = conn.execute("""
-            SELECT 
-                entity_name,
-                entity_type,
-                reddit_sentiment_score,
-                news_sentiment_score,
-                github_trending_score,
-                hf_trending_score,
-                multi_source_hype_intensity,
-                reality_strength_score,
-                hype_reality_gap
-            FROM combined_features 
-            ORDER BY multi_source_hype_intensity DESC 
-            LIMIT 5
-        """).fetchdf()
-        
-        print(sample)
+        try:
+            sample = conn.execute("""
+                SELECT 
+                    entity_name,
+                    entity_type,
+                    reddit_sentiment_score,
+                    news_sentiment_score,
+                    github_trending_score,
+                    hf_trending_score,
+                    multi_source_hype_intensity,
+                    reality_strength_score,
+                    hype_reality_gap
+                FROM combined_features 
+                WHERE entity_name IS NOT NULL
+                ORDER BY multi_source_hype_intensity DESC 
+                LIMIT 5
+            """).fetchdf()
+            print(sample)
+        except Exception as e:
+            print(f"Warning: Could not fetch sample data: {str(e)}")
+            # Continue execution even if sample display fails
             
         print("\nEnhanced feature computation completed successfully!")
         
