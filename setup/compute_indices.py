@@ -169,8 +169,51 @@ def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
     """
     print("Computing enhanced bubble metrics with multi-source integration...")
     
+    # Create table with timestamp for hourly tracking
     conn.execute("""
-    CREATE OR REPLACE TABLE bubble_metrics AS
+    CREATE TABLE IF NOT EXISTS bubble_metrics (
+        time_id INTEGER,
+        date DATE,
+        computed_at TIMESTAMP,
+        hype_index DOUBLE,
+        reality_index DOUBLE,
+        hype_7d_avg DOUBLE,
+        reality_7d_avg DOUBLE,
+        hype_30d_avg DOUBLE,
+        reality_30d_avg DOUBLE,
+        hype_reality_gap DOUBLE,
+        hype_reality_ratio DOUBLE,
+        bubble_momentum DOUBLE,
+        sentiment_bubble_momentum DOUBLE,
+        github_trending_bubble_momentum DOUBLE,
+        trending_reality_divergence DOUBLE,
+        hype_score DOUBLE,
+        reality_score DOUBLE,
+        bubble_risk_score DOUBLE
+    )
+    """)
+    
+    # For backward compatibility: if table exists without computed_at, we need to handle it
+    # Check if computed_at column exists
+    try:
+        columns = conn.execute("DESCRIBE bubble_metrics").fetchdf()
+        has_computed_at = 'computed_at' in columns['column_name'].values
+        
+        if not has_computed_at:
+            # Table exists but doesn't have computed_at column - add it
+            try:
+                conn.execute("ALTER TABLE bubble_metrics ADD COLUMN computed_at TIMESTAMP")
+                # Set computed_at for existing rows to date at midnight
+                conn.execute("UPDATE bubble_metrics SET computed_at = CAST(date AS TIMESTAMP) WHERE computed_at IS NULL")
+                print("Added computed_at column to bubble_metrics for hourly tracking")
+            except Exception as e:
+                print(f"Warning: Could not add computed_at column: {e}")
+    except Exception as e:
+        # Table might not exist yet, which is fine - it will be created with computed_at
+        pass
+    
+    conn.execute("""
+    INSERT INTO bubble_metrics
     WITH 
     -- Join indices and compute rolling averages with multi-source components
     rolling_metrics AS (
@@ -219,10 +262,17 @@ def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
             ) as reality_github_7d_avg
         FROM hype_index h
         JOIN reality_index r ON h.time_id = r.time_id
+    ),
+    latest_metrics AS (
+        -- Only get the latest date's metrics to insert as a new point
+        SELECT *
+        FROM rolling_metrics
+        WHERE date = (SELECT MAX(date) FROM rolling_metrics)
     )
     SELECT 
         time_id,
         date,
+        CURRENT_TIMESTAMP as computed_at,
         hype_index,
         reality_index,
         hype_7d_avg,
@@ -242,19 +292,35 @@ def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
         (github_trend_7d_avg - reality_github_7d_avg) as github_trending_bubble_momentum,
         -- NEW: Trending divergence indicator (use columns from rolling_metrics)
         (trending_component - cumulative_impact_component) as trending_reality_divergence,
-        -- Normalized scores (0-100 scale)
-        100 * (hype_index - MIN(hype_index) OVER()) / 
-            NULLIF((MAX(hype_index) OVER() - MIN(hype_index) OVER()), 0) as hype_score,
-        100 * (reality_index - MIN(reality_index) OVER()) / 
-            NULLIF((MAX(reality_index) OVER() - MIN(reality_index) OVER()), 0) as reality_score,
+        -- Normalized scores (0-100 scale) - normalize based on all historical data
+        -- Use COALESCE to handle case where bubble_metrics is empty (first run)
+        CASE 
+            WHEN COALESCE((SELECT MAX(hype_index) FROM bubble_metrics), hype_index) = 
+                 COALESCE((SELECT MIN(hype_index) FROM bubble_metrics), hype_index) THEN 50.0
+            ELSE 100 * (hype_index - COALESCE((SELECT MIN(hype_index) FROM bubble_metrics), hype_index)) / 
+                NULLIF(
+                    COALESCE((SELECT MAX(hype_index) FROM bubble_metrics), hype_index) - 
+                    COALESCE((SELECT MIN(hype_index) FROM bubble_metrics), hype_index), 
+                    0
+                )
+        END as hype_score,
+        CASE 
+            WHEN COALESCE((SELECT MAX(reality_index) FROM bubble_metrics), reality_index) = 
+                 COALESCE((SELECT MIN(reality_index) FROM bubble_metrics), reality_index) THEN 50.0
+            ELSE 100 * (reality_index - COALESCE((SELECT MIN(reality_index) FROM bubble_metrics), reality_index)) / 
+                NULLIF(
+                    COALESCE((SELECT MAX(reality_index) FROM bubble_metrics), reality_index) - 
+                    COALESCE((SELECT MIN(reality_index) FROM bubble_metrics), reality_index), 
+                    0
+                )
+        END as reality_score,
         -- NEW: Composite bubble risk score
         (
-            ABS(hype_reality_gap) * 0.4 +
-            ABS(bubble_momentum) * 0.3 +
-            ABS(trending_reality_divergence) * 0.3
+            ABS((hype_index - reality_index)) * 0.4 +
+            ABS((hype_7d_avg - reality_7d_avg) - (hype_30d_avg - reality_30d_avg)) * 0.3 +
+            ABS((trending_component - cumulative_impact_component)) * 0.3
         ) * 100 as bubble_risk_score
-    FROM rolling_metrics
-    ORDER BY date;
+    FROM latest_metrics;
     """)
 
 def compute_entity_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
@@ -370,7 +436,8 @@ def main():
                 trending_reality_divergence,
                 bubble_risk_score
             FROM bubble_metrics 
-            ORDER BY date DESC 
+            WHERE computed_at IS NOT NULL
+            ORDER BY computed_at DESC 
             LIMIT 1
         """).fetchone()
         

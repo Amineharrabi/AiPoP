@@ -4,4 +4,8 @@ venv/
 *.pyc
 data/raw/**
 data/staging/**
-data/warehouse/**
+
+# Allow database file for Streamlit Cloud deployment
+# Note: The database file needs to be committed for Streamlit Cloud to access it
+# Uncomment the line below if you want to exclude the database from git
+# data/warehouse/ai_bubble.duckdb

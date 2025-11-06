@@ -197,42 +197,79 @@ class BubbleDetector:
                        divergence: pd.Series,
                        acceleration: pd.Series,
                        pattern_score: float) -> List[BubbleAlert]:
-        """Generate multi-tier alerts based on detection results"""
+        """Generate multi-tier alerts based on detection results - only for latest/most significant point"""
         alerts = []
         
-        # Compute z-scores
-        div_z = zscore(divergence)
-        acc_z = zscore(acceleration)
+        # Handle NaN values in acceleration (first values will be NaN due to diff operations)
+        acceleration_clean = acceleration.dropna()
+        if len(acceleration_clean) == 0:
+            # If all acceleration values are NaN, create a zero series
+            acceleration_clean = pd.Series([0.0] * len(divergence), index=divergence.index)
         
-        for timestamp, div_score, acc_score in zip(
-            divergence.index, div_z, acc_z
-        ):
-            # Determine alert level
-            if div_score > self.critical_threshold and pattern_score > 0.8:
-                level = 'critical'
-            elif div_score > self.warning_threshold and pattern_score > 0.6:
-                level = 'warning'
-            elif div_score > self.watch_threshold or acc_score > 2.0:
-                level = 'watch'
+        # Align acceleration with divergence (use forward fill for missing values)
+        acceleration_aligned = acceleration.reindex(divergence.index, method='ffill').fillna(0.0)
+        
+        # Compute z-scores, handling NaN values
+        div_z = zscore(divergence.dropna())
+        if len(div_z) == 0:
+            return alerts
+        
+        # Map z-scores back to original index
+        div_z_mapped = pd.Series(index=divergence.index, dtype=float)
+        for idx in divergence.index:
+            if idx in div_z.index:
+                div_z_mapped[idx] = div_z[idx]
             else:
-                continue
-                
-            # Create alert with contributing factors
-            alert = BubbleAlert(
-                level=level,
-                timestamp=timestamp,
-                entity_id=entity_id,
-                divergence_score=div_score,
-                acceleration_score=acc_score,
-                pattern_score=pattern_score,
-                confidence=self.compute_confidence(div_score, acc_score, pattern_score),
-                contributing_factors={
-                    'divergence': div_score,
-                    'acceleration': acc_score,
-                    'pattern_similarity': pattern_score
-                }
-            )
-            alerts.append(alert)
+                div_z_mapped[idx] = 0.0
+        
+        # Compute acceleration z-scores only for non-NaN values
+        acc_z_mapped = pd.Series(index=divergence.index, dtype=float)
+        if len(acceleration_clean) > 0:
+            acc_z = zscore(acceleration_clean)
+            for idx in divergence.index:
+                if idx in acc_z.index:
+                    acc_z_mapped[idx] = acc_z[idx]
+                else:
+                    acc_z_mapped[idx] = 0.0
+        else:
+            acc_z_mapped = pd.Series([0.0] * len(divergence), index=divergence.index)
+        
+        # Only generate alert for the LATEST timestamp that meets criteria
+        # This prevents duplicates and focuses on current state
+        latest_timestamp = divergence.index[-1]
+        div_score = div_z_mapped[latest_timestamp]
+        acc_score = acc_z_mapped[latest_timestamp]
+        
+        # Determine alert level
+        if div_score > self.critical_threshold and pattern_score > 0.8:
+            level = 'critical'
+        elif div_score > self.warning_threshold and pattern_score > 0.6:
+            level = 'warning'
+        elif div_score > self.watch_threshold or (not pd.isna(acc_score) and acc_score > 2.0):
+            level = 'watch'
+        else:
+            return alerts  # No alert needed
+        
+        # Handle NaN acceleration score
+        if pd.isna(acc_score):
+            acc_score = 0.0
+        
+        # Create alert with contributing factors
+        alert = BubbleAlert(
+            level=level,
+            timestamp=latest_timestamp,
+            entity_id=entity_id,
+            divergence_score=float(div_score),
+            acceleration_score=float(acc_score),
+            pattern_score=float(pattern_score),
+            confidence=self.compute_confidence(div_score, acc_score, pattern_score),
+            contributing_factors={
+                'divergence': float(div_score),
+                'acceleration': float(acc_score),
+                'pattern_similarity': float(pattern_score)
+            }
+        )
+        alerts.append(alert)
             
         return alerts
 
@@ -293,22 +330,40 @@ class BubbleDetector:
                 )
             """)
             
-            # Register DataFrame and insert
-            # DuckDB should automatically handle datetime conversion from pandas
-            conn.register('alerts_df', alerts_df)
-            conn.execute("""
-                INSERT INTO bubble_alerts 
-                SELECT 
-                    timestamp,
-                    entity_id,
-                    alert_level,
-                    divergence_score,
-                    acceleration_score,
-                    pattern_score,
-                    confidence,
-                    contributing_factors
-                FROM alerts_df
-            """)
+            # Handle NaN values in DataFrame before insertion
+            alerts_df['acceleration_score'] = alerts_df['acceleration_score'].fillna(0.0)
+            alerts_df['divergence_score'] = alerts_df['divergence_score'].fillna(0.0)
+            alerts_df['pattern_score'] = alerts_df['pattern_score'].fillna(0.0)
+            alerts_df['confidence'] = alerts_df['confidence'].fillna(0.0)
+            
+            # Deduplicate: remove existing alerts for same (timestamp, entity_id, alert_level) before inserting
+            if len(alerts_df) > 0:
+                conn.register('alerts_df', alerts_df)
+                # Delete existing alerts that match the new ones
+                conn.execute("""
+                    DELETE FROM bubble_alerts
+                    WHERE EXISTS (
+                        SELECT 1 FROM alerts_df
+                        WHERE alerts_df.timestamp = bubble_alerts.timestamp
+                        AND alerts_df.entity_id = bubble_alerts.entity_id
+                        AND alerts_df.alert_level = bubble_alerts.alert_level
+                    )
+                """)
+                
+                # Insert new alerts
+                conn.execute("""
+                    INSERT INTO bubble_alerts 
+                    SELECT 
+                        timestamp,
+                        entity_id,
+                        alert_level,
+                        divergence_score,
+                        acceleration_score,
+                        pattern_score,
+                        confidence,
+                        contributing_factors
+                    FROM alerts_df
+                """)
             logger.info(f"Saved {len(alerts)} alerts to warehouse")
             
         except Exception as e:

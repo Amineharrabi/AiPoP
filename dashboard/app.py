@@ -17,6 +17,26 @@ def connect_db(path: str):
 
 def load_global_indices(conn):
     try:
+        # Use bubble_metrics with computed_at for hourly granularity
+        # Fallback to hype_index/reality_index if bubble_metrics doesn't have computed_at
+        try:
+            df = conn.execute("""
+                SELECT 
+                    computed_at as date,
+                    hype_index,
+                    reality_index
+                FROM bubble_metrics
+                WHERE computed_at IS NOT NULL
+                ORDER BY computed_at
+            """).fetchdf()
+            if not df.empty:
+                df['date'] = pd.to_datetime(df['date'])
+                df = df.set_index('date')
+                return df
+        except:
+            pass
+        
+        # Fallback to old method
         df = conn.execute("SELECT date, hype_index, reality_index FROM hype_index JOIN reality_index USING(time_id, date) ORDER BY date").fetchdf()
         df['date'] = pd.to_datetime(df['date'])
         df = df.set_index('date')
