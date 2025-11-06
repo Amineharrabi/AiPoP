@@ -1,6 +1,0 @@
-# System packages required for some Python libraries
-# This file is used by Streamlit Cloud to install system dependencies
-
-# Required for some Python packages
-libgomp1
-
