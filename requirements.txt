@@ -26,7 +26,7 @@ websockets==15.0.1
 # Data sources
 yfinance==0.2.66
 arxiv==2.3.0
-praw==7.9.0
+praw==7.8.1
 sec-api==1.0.32
 
 # Utilities
