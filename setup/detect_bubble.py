@@ -42,7 +42,7 @@ class BubbleDetector:
         
         # Model parameters
         self.lookback_window = 90  # days
-        self.min_samples = 30
+        self.min_samples = 5  # Reduced from 30 - data is sparse, need at least 5 points for basic analysis
         self.contamination = 0.05
         
         # Alert thresholds
@@ -273,6 +273,12 @@ class BubbleDetector:
                 for alert in alerts
             ])
             
+            # Ensure timestamp column is datetime type and timezone-naive
+            alerts_df['timestamp'] = pd.to_datetime(alerts_df['timestamp'])
+            if alerts_df['timestamp'].dt.tz is not None:
+                # Remove timezone if present
+                alerts_df['timestamp'] = alerts_df['timestamp'].dt.tz_localize(None)
+            
             # Update alerts table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS bubble_alerts (
@@ -287,12 +293,22 @@ class BubbleDetector:
                 )
             """)
             
+            # Register DataFrame and insert
+            # DuckDB should automatically handle datetime conversion from pandas
+            conn.register('alerts_df', alerts_df)
             conn.execute("""
                 INSERT INTO bubble_alerts 
-                SELECT * FROM alerts_df
+                SELECT 
+                    timestamp,
+                    entity_id,
+                    alert_level,
+                    divergence_score,
+                    acceleration_score,
+                    pattern_score,
+                    confidence,
+                    contributing_factors
+                FROM alerts_df
             """)
-            
-            conn.commit()
             logger.info(f"Saved {len(alerts)} alerts to warehouse")
             
         except Exception as e:
@@ -301,58 +317,99 @@ class BubbleDetector:
         finally:
             conn.close()
 
-    def detect_bubbles(self, lookback_days: int = 90):
-        """Main function to detect bubbles across all entities"""
+    def detect_bubbles(self, lookback_days: int = None):
+        """
+        Main function to detect bubbles across all entities
+        
+        Args:
+            lookback_days: Number of days to look back. If None, uses all available data.
+        """
         try:
             conn = duckdb.connect(self.warehouse_path)
             
-            # Get recent data for all entities
+            # Build date filter - use all data if lookback_days is None
+            date_filter = ""
+            if lookback_days is not None:
+                date_filter = f"AND eb.date >= CURRENT_DATE - INTERVAL '{lookback_days} days'"
+            
+            # First, identify entities with sufficient data
+            where_clause = date_filter.replace("AND", "WHERE") if date_filter else ""
+            sufficient_entities_query = f"""
+                SELECT entity_id, COUNT(*) as cnt
+                FROM entity_bubble_metrics eb
+                {where_clause}
+                GROUP BY entity_id
+                HAVING COUNT(*) >= {self.min_samples}
+            """
+            sufficient_entities = conn.execute(sufficient_entities_query).fetchdf()
+            
+            if len(sufficient_entities) == 0:
+                logger.warning(f"No entities have sufficient data (>= {self.min_samples} samples)")
+                return []
+            
+            logger.info(f"Found {len(sufficient_entities)} entities with sufficient data (>= {self.min_samples} samples)")
+            
+            # Get recent data for entities with sufficient data
+            entity_list = ', '.join(map(str, sufficient_entities['entity_id'].tolist()))
             query = f"""
-                WITH recent_data AS (
-                    -- Prefer per-entity metrics if available
-            SELECT * FROM (
                 WITH recent_entity_data AS (
                     SELECT
                         eb.time_id,
                         eb.date,
                         eb.entity_id,
                         eb.entity_name,
-                        eb.hype_intensity_score as hype_index,
+                        eb.multi_source_hype_intensity as hype_index,
                         eb.reality_strength_score as reality_index,
                         eb.hype_reality_gap,
                         eb.bubble_momentum
                     FROM entity_bubble_metrics eb
-                    WHERE eb.date >= DATEADD(DAY, -{lookback_days}, CURRENT_DATE)
-                )
-                SELECT * FROM recent_entity_data
-                UNION ALL
-                SELECT * FROM (
-                    -- Fallback to global bubble_metrics (no entity_id expected)
+                    WHERE eb.entity_id IN ({entity_list})
+                    {date_filter}
+                ),
+                recent_global_data AS (
                     SELECT
                         b.time_id,
                         b.date,
-                        NULL as entity_id,
-                        NULL as entity_name,
+                        NULL::INTEGER as entity_id,
+                        NULL::VARCHAR as entity_name,
                         b.hype_index,
                         b.reality_index,
                         b.hype_reality_gap,
                         b.bubble_momentum
                     FROM bubble_metrics b
-                    WHERE b.date >= DATEADD(DAY, -{lookback_days}, CURRENT_DATE)
+                    {f"WHERE b.date >= CURRENT_DATE - INTERVAL '{lookback_days} days'" if lookback_days is not None else ""}
+                ),
+                recent_data AS (
+                    SELECT * FROM recent_entity_data
+                    UNION ALL
+                    SELECT * FROM recent_global_data
                 )
-            )
-            ORDER BY date
+                SELECT * FROM recent_data
+                ORDER BY date
             """
 
             df = conn.execute(query).fetchdf()
             
+            if df.empty:
+                logger.warning("No data found for bubble detection")
+                return []
+            
             all_alerts = []
-            for entity_id in df['entity_id'].unique():
-                entity_data = df[df['entity_id'] == entity_id]
+            # Filter out NULL entity_ids and process each entity
+            # Note: We already filtered for sufficient entities, so all should have enough data
+            entity_ids = df['entity_id'].dropna().unique()
+            
+            for entity_id in entity_ids:
+                entity_data = df[df['entity_id'] == entity_id].copy()
                 
+                # Double-check (shouldn't happen since we pre-filtered, but safety check)
                 if len(entity_data) < self.min_samples:
-                    logger.warning(f"Insufficient data for entity {entity_id}")
+                    logger.debug(f"Entity {entity_id} had insufficient data after filtering (has {len(entity_data)} rows, needs {self.min_samples})")
                     continue
+                
+                # Set date as index for proper timestamp handling
+                entity_data = entity_data.set_index('date')
+                entity_data.index = pd.to_datetime(entity_data.index)
                 
                 # Compute metrics
                 divergence = self.compute_divergence(
@@ -390,7 +447,9 @@ def main():
     """Run bubble detection"""
     try:
         detector = BubbleDetector()
-        alerts = detector.detect_bubbles()
+        # Use None to process all available data (not just last 90 days)
+        # This ensures we include entities with sufficient historical data
+        alerts = detector.detect_bubbles(lookback_days=None)
         
         # Log summary
         alert_counts = {

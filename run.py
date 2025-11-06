@@ -127,7 +127,7 @@ def plot_indices(conn):
         title_text='AI Bubble Detection Indices'
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 def show_alerts(conn):
     """Display bubble alerts"""
@@ -137,7 +137,7 @@ def show_alerts(conn):
             e.name as entity_name
         FROM bubble_alerts a
         LEFT JOIN dim_entity e ON a.entity_id = e.entity_id
-        WHERE timestamp >= DATEADD(DAY, -30, CURRENT_DATE)
+        WHERE timestamp >= CURRENT_DATE - INTERVAL '30 days'
         ORDER BY timestamp DESC, confidence DESC
     """).fetchdf()
     

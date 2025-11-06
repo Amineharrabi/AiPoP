@@ -240,8 +240,8 @@ def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
         -- Component-specific momentum gaps
         (sentiment_7d_avg - reality_7d_avg) as sentiment_bubble_momentum,
         (github_trend_7d_avg - reality_github_7d_avg) as github_trending_bubble_momentum,
-    -- NEW: Trending divergence indicator (use columns from rolling_metrics)
-    (trending_component - cumulative_impact_component) as trending_reality_divergence,
+        -- NEW: Trending divergence indicator (use columns from rolling_metrics)
+        (trending_component - cumulative_impact_component) as trending_reality_divergence,
         -- Normalized scores (0-100 scale)
         100 * (hype_index - MIN(hype_index) OVER()) / 
             NULLIF((MAX(hype_index) OVER() - MIN(hype_index) OVER()), 0) as hype_score,
@@ -327,10 +327,17 @@ def compute_entity_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
         (github_trending_score - LAG(github_trending_score, 7) OVER (PARTITION BY entity_id ORDER BY date)) as github_trending_momentum,
         (hf_trending_score - LAG(hf_trending_score, 7) OVER (PARTITION BY entity_id ORDER BY date)) as hf_trending_momentum,
         -- Per-entity normalized scores (0-100)
-        100 * (multi_source_hype_intensity - MIN(multi_source_hype_intensity) OVER (PARTITION BY entity_id)) /
-            NULLIF((MAX(multi_source_hype_intensity) OVER (PARTITION BY entity_id) - MIN(multi_source_hype_intensity) OVER (PARTITION BY entity_id)), 0) as hype_score,
-        100 * (reality_strength_score - MIN(reality_strength_score) OVER (PARTITION BY entity_id)) /
-            NULLIF((MAX(reality_strength_score) OVER (PARTITION BY entity_id) - MIN(reality_strength_score) OVER (PARTITION BY entity_id)), 0) as reality_score
+        -- Handle case where min = max (all values same) by returning 50 as neutral score
+        CASE 
+            WHEN MAX(multi_source_hype_intensity) OVER (PARTITION BY entity_id) = MIN(multi_source_hype_intensity) OVER (PARTITION BY entity_id) THEN 50.0
+            ELSE 100 * (multi_source_hype_intensity - MIN(multi_source_hype_intensity) OVER (PARTITION BY entity_id)) /
+                NULLIF((MAX(multi_source_hype_intensity) OVER (PARTITION BY entity_id) - MIN(multi_source_hype_intensity) OVER (PARTITION BY entity_id)), 0)
+        END as hype_score,
+        CASE 
+            WHEN MAX(reality_strength_score) OVER (PARTITION BY entity_id) = MIN(reality_strength_score) OVER (PARTITION BY entity_id) THEN 50.0
+            ELSE 100 * (reality_strength_score - MIN(reality_strength_score) OVER (PARTITION BY entity_id)) /
+                NULLIF((MAX(reality_strength_score) OVER (PARTITION BY entity_id) - MIN(reality_strength_score) OVER (PARTITION BY entity_id)), 0)
+        END as reality_score
     FROM rolling
     ORDER BY entity_id, date;
     """)
@@ -376,23 +383,57 @@ def main():
             print(f"Bubble Risk Score: {latest_metrics[5]:.2f}")
         
         # Show sample of multi-source bubble detection
-        print("\nTop entities by bubble risk score:")
+        print("\nTop entities by bubble risk score (latest date per entity):")
         top_risks = conn.execute("""
+            WITH latest_metrics AS (
+                SELECT 
+                    entity_id,
+                    MAX(date) as latest_date
+                FROM entity_bubble_metrics
+                WHERE COALESCE(entity_name, '') != ''
+                GROUP BY entity_id
+            ),
+            ranked_entities AS (
+                SELECT 
+                    e.entity_id,
+                    COALESCE(e.entity_name, 'Unknown') as entity_name,
+                    e.entity_type,
+                    e.hype_score,
+                    e.reality_score,
+                    e.bubble_momentum,
+                    e.github_trending_score,
+                    e.hf_trending_score,
+                    e.reddit_sentiment_score,
+                    ROW_NUMBER() OVER (PARTITION BY e.entity_id ORDER BY e.date DESC) as rn
+                FROM entity_bubble_metrics e
+                JOIN latest_metrics lm ON e.entity_id = lm.entity_id AND e.date = lm.latest_date
+                WHERE COALESCE(e.entity_name, '') != ''
+                AND (e.hype_score IS NOT NULL OR e.reality_score IS NOT NULL)
+            )
             SELECT 
                 entity_name,
                 entity_type,
-                hype_score,
-                reality_score,
-                bubble_momentum,
-                github_trending_score,
-                hf_trending_score,
-                reddit_sentiment_score
-            FROM entity_bubble_metrics 
-            ORDER BY bubble_momentum DESC 
-            LIMIT 5
+                ROUND(COALESCE(hype_score, 0), 2) as hype_score,
+                ROUND(COALESCE(reality_score, 0), 2) as reality_score,
+                ROUND(COALESCE(bubble_momentum, 0), 4) as bubble_momentum,
+                ROUND(COALESCE(github_trending_score, 0), 2) as github_trending_score,
+                ROUND(COALESCE(hf_trending_score, 0), 2) as hf_trending_score,
+                ROUND(COALESCE(reddit_sentiment_score, 0), 2) as reddit_sentiment_score
+            FROM ranked_entities
+            WHERE rn = 1
+            ORDER BY ABS(COALESCE(bubble_momentum, 0)) DESC 
+            LIMIT 10
         """).fetchdf()
         
-        print(top_risks)
+        # Format the output nicely with proper display options
+        if not top_risks.empty:
+            pd.set_option('display.max_columns', None)
+            pd.set_option('display.width', 200)
+            pd.set_option('display.max_colwidth', 40)
+            pd.set_option('display.float_format', lambda x: f'{x:.2f}' if pd.notna(x) else 'N/A')
+            print("\n" + top_risks.to_string(index=False))
+        else:
+            print("No entities found with sufficient data.")
         
         print("\nEnhanced index computation completed successfully!")
         
