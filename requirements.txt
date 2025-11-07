@@ -37,7 +37,7 @@ pyarrow==17.0.0           # ✅ compatible with pandas 2.2.x and Py3.13
 
 # Core analytics and visualization
 plotly==5.24.1
-streamlit==1.41.0        # ✅ confirmed Py3.13 support
+streamlit==1.42.0        # ✅ confirmed Py3.13 support
 duckdb==1.1.3
 
 # Machine learning and statistics
