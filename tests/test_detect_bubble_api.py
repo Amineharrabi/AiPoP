@@ -1,5 +1,5 @@
 import inspect
-import scripts.detect_bubble as db
+import setup.detect_bubble as db
 
 
 def test_detect_bubble_api():

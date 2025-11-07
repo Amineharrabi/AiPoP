@@ -1,5 +1,5 @@
 import inspect
-import scripts.compute_features as cf
+import setup.compute_features as cf
 
 
 def test_compute_features_functions_exist():
