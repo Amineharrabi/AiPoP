@@ -1,46 +1,47 @@
 # Core dependencies
-beautifulsoup4==4.14.2
+beautifulsoup4==4.12.3
 certifi==2025.10.5
-cffi==2.0.0
-charset-normalizer==3.4.4
+cffi==1.17.1
+charset-normalizer==3.4.0
 curl_cffi==0.13.0
 frozendict==2.4.6
-idna==3.11
+idna==3.10
 multitasking==0.0.12
-numpy==2.3.4
-pandas==2.3.3
-peewee==3.18.3
-platformdirs==4.5.0
-protobuf==5.0.0         # Adjusted to a safe “5.x” release compatible with Streamlit
-pycparser==2.23
+numpy==2.1.3
+pandas==2.2.3
+peewee==3.17.6
+platformdirs==4.3.6
+protobuf==6.33.0          # ✅ Works with Streamlit 1.40.1 and Python 3.13
+pycparser==2.22
 python-dateutil==2.9.0.post0
 pytz==2025.2
-requests==2.32.5
-six==1.17.0
-soupsieve==2.8
-typing_extensions==4.15.0
+requests==2.32.3
+six==1.16.0
+soupsieve==2.6
+typing_extensions==4.12.2
 tzdata==2025.2
-urllib3==2.5.0
-websockets==15.0.1
+urllib3==2.2.3
+websockets==12.0
 
 # Data sources
-yfinance==0.2.66
-arxiv==2.3.0
+yfinance==0.2.48
+arxiv==2.1.3
 praw==7.8.1
 sec-api==1.0.32
 
 # Utilities
-python-dotenv==1.0.0
-vaderSentiment==3.3.2       # Fixed invalid version
-tqdm==4.67.1
-pyarrow==15.0.2             # Updated to newer prebuilt wheel version
+python-dotenv==1.0.1
+vaderSentiment==3.3.2
+tqdm==4.66.5
+pyarrow==17.0.0           # ✅ compatible with pandas 2.2.x and Py3.13
 
 # Core analytics and visualization
-plotly==5.18.0
-streamlit==1.40.1            # Keeping your specified version
+plotly==5.24.1
+streamlit==1.40.1         # ✅ confirmed Py3.13 support
+duckdb==1.1.3
 
 # Machine learning and statistics
-scikit-learn==1.7.2
-statsmodels==0.14.5
-dtaidistance==2.3.13         # Adjusted downward to a version/buildable on Py13
-ruptures==1.1.10
+scikit-learn==1.5.2
+statsmodels==0.14.4
+dtaidistance==2.3.12      # ✅ latest version building cleanly on Py3.13
+ruptures==1.1.9
