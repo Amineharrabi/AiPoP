@@ -11,7 +11,7 @@ numpy==2.3.4
 pandas==2.3.3
 peewee==3.18.3
 platformdirs==4.5.0
-protobuf==6.33.0
+protobuf==5.29.0     # ✅ fixed: compatible with Streamlit
 pycparser==2.23
 python-dateutil==2.9.0.post0
 pytz==2025.2
@@ -31,7 +31,7 @@ sec-api==1.0.32
 
 # Utilities
 python-dotenv==1.0.0
-vaderSentiment==3.3.2    # fixed: 3.3.3 does not exist on PyPI
+vaderSentiment==3.3.2
 tqdm==4.67.1
 pyarrow==12.0.0
 
@@ -43,5 +43,5 @@ duckdb==1.2.1
 # Machine learning and statistics
 scikit-learn==1.7.2
 statsmodels==0.14.5
-dtaidistance==2.3.14
+dtaidistance==2.3.13   # ✅ fixed: available for Python 3.13
 ruptures==1.1.10
