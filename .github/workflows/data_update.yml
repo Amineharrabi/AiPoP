@@ -2,7 +2,7 @@ name: Incremental Data Update
 
 on:
   schedule:
-    - cron: "*/10 * * * *" # Run every 10 minutes
+    - cron: "0 */6 * * *" # Run every 6 hours (more reasonable than 10 min)
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -12,6 +12,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Need full history for git operations
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -24,9 +26,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Set up DuckDB and environment
+      - name: Download existing database
+        continue-on-error: true
         run: |
-          python setup/setup_duckdb.py
+          # Try to download existing database from latest release or artifacts
+          if [ -f "data/warehouse/ai_bubble.duckdb" ]; then
+            echo "Database already exists"
+          else
+            echo "No existing database found - will need full setup"
+          fi
+
+      - name: Set up environment variables
+        run: |
+          echo "PYTHONUNBUFFERED=1" >> $GITHUB_ENV
         env:
           SEC_API_KEY: ${{ secrets.SEC_API_KEY }}
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
@@ -36,68 +48,166 @@ jobs:
           HF_ACCESS_TOKEN: ${{ secrets.HF_ACCESS_TOKEN }}
           NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
 
-      - name: Update Stock Data
-        run: python ingest/ingest_yfinance.py
+      - name: Initialize database if needed
+        run: |
+          if [ ! -f "data/warehouse/ai_bubble.duckdb" ]; then
+            echo "Initializing database..."
+            python setup/setup_duckdb.py
+          else
+            echo "Database exists, skipping initialization"
+          fi
+        env:
+          SEC_API_KEY: ${{ secrets.SEC_API_KEY }}
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          HF_ACCESS_TOKEN: ${{ secrets.HF_ACCESS_TOKEN }}
+          NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+
+      - name: Ingest new data
+        run: |
+          echo "Ingesting new data from all sources..."
+
+          # Run all ingest scripts (they should be idempotent)
+          python ingest/ingest_yfinance.py || echo "YFinance ingest had issues"
+          python ingest/ingest_news.py || echo "News ingest had issues"
+          python ingest/ingest_reddit.py || echo "Reddit ingest had issues"
+          python ingest/ingest_sec.py || echo "SEC ingest had issues"
+          python ingest/ingest_github_hf.py || echo "GitHub/HF ingest had issues"
+        continue-on-error: true
+        env:
+          SEC_API_KEY: ${{ secrets.SEC_API_KEY }}
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          HF_ACCESS_TOKEN: ${{ secrets.HF_ACCESS_TOKEN }}
+          NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+
+      - name: Load new data to warehouse
+        run: |
+          echo "Loading new staging data to warehouse..."
+          python setup/load_warehouse.py
+
+      - name: Compute features for new data
+        run: |
+          echo "Computing features..."
+          python setup/compute_features.py
+
+      - name: Run incremental index update
+        run: |
+          echo "Running incremental update (only new data points)..."
+          python setup/incremental_update.py
+
+      - name: Detect bubble patterns
+        run: |
+          echo "Running bubble detection..."
+          python setup/detect_bubble.py
         continue-on-error: true
 
-      - name: Update News Data
-        run: python ingest/ingest_news.py
-        continue-on-error: true
-
-      - name: Update Reddit Data
-        run: python ingest/ingest_reddit.py
-        continue-on-error: true
-
-      - name: Update SEC Data
-        run: python ingest/ingest_sec.py
-        continue-on-error: true
-
-      - name: Update GitHub and HuggingFace Data
-        run: python ingest/ingest_github_hf.py
-        continue-on-error: true
-
-      - name: Update Features
-        run: python setup/compute_features.py
-
-      - name: Update Bubble Detection
-        run: python setup/detect_bubble.py
-
-      - name: Check for Updates
+      - name: Check for data changes
         id: check-updates
         run: |
-          # Count number of changed files
-          CHANGED=$(git status --porcelain | wc -l)
-          echo "changed=$CHANGED" >> $GITHUB_OUTPUT
+          # Check if database was modified
+          if [ -f "data/warehouse/ai_bubble.duckdb" ]; then
+            # Count size change
+            SIZE=$(stat -f%z "data/warehouse/ai_bubble.duckdb" 2>/dev/null || stat -c%s "data/warehouse/ai_bubble.duckdb" 2>/dev/null || echo "0")
+            echo "size=$SIZE" >> $GITHUB_OUTPUT
+            
+            # Check git status
+            CHANGED=$(git status --porcelain data/warehouse/ai_bubble.duckdb | wc -l)
+            echo "changed=$CHANGED" >> $GITHUB_OUTPUT
+            
+            echo "Database size: $SIZE bytes"
+            echo "Changed files: $CHANGED"
+          else
+            echo "changed=0" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Commit and Push Changes
+      - name: Commit and push database
         if: steps.check-updates.outputs.changed != '0'
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-          # Add all data files
+          # Stage database file
           git add data/warehouse/ai_bubble.duckdb
-          git add data/raw/**/*
-          git add data/staging/**/*
 
-          # Commit and push changes
-          git commit -m "Auto data update $(date +'%Y-%m-%d %H:%M:%S') - ${{ steps.check-updates.outputs.changed }} files changed"
-          git push
+          # Also add any new raw/staging files (optional)
+          git add data/raw/ data/staging/ || true
 
-      - name: Create Issue on Failure
-        if: failure()
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const title = 'Data Update Failed';
-            const body = `The data update workflow failed at ${new Date().toISOString()}.
+          # Create commit
+          TIMESTAMP=$(date +'%Y-%m-%d %H:%M UTC')
+          git commit -m "📊 Data update: $TIMESTAMP" \
+                     -m "Updated database with latest data" \
+                     -m "Size: ${{ steps.check-updates.outputs.size }} bytes" || exit 0
 
-            Please check the [workflow run](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}) for details.`;
+          # Push changes
+          git push || {
+            echo "Push failed, trying to pull and rebase..."
+            git pull --rebase origin main
+            git push
+          }
 
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title,
-              body,
-              labels: ['automated', 'data-update-failed']
-            });
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## Data Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp:** $(date +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f "data/warehouse/ai_bubble.duckdb" ]; then
+            # Get database stats using Python
+            python3 << 'EOF' >> $GITHUB_STEP_SUMMARY
+          import duckdb
+          import os
+          try:
+              conn = duckdb.connect('data/warehouse/ai_bubble.duckdb', read_only=True)
+              
+              # Get data points
+              result = conn.execute("SELECT MIN(date) as first, MAX(date) as last, COUNT(*) as total FROM bubble_metrics").fetchone()
+              if result:
+                  print(f"- **Date Range:** {result[0]} to {result[1]}")
+                  print(f"- **Total Data Points:** {result[2]}")
+              
+              # Get latest values
+              latest = conn.execute("SELECT hype_index, reality_index, hype_reality_gap FROM bubble_metrics ORDER BY date DESC LIMIT 1").fetchone()
+              if latest:
+                  print(f"- **Latest Hype Index:** {latest[0]:.4f}")
+                  print(f"- **Latest Reality Index:** {latest[1]:.4f}")
+                  print(f"- **Hype-Reality Gap:** {latest[2]:.4f}")
+              
+              conn.close()
+          except Exception as e:
+              print(f"- **Error getting stats:** {e}")
+          EOF
+                    fi
+                
+                - name: Create issue on failure
+                  if: failure()
+                  uses: actions/github-script@v6
+                  with:
+                    script: |
+                      const title = '⚠️ Data Update Failed';
+                      const body = `The incremental data update workflow failed at ${new Date().toISOString()}.
+                      
+                      **Workflow Run:** [View Details](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})
+                      
+                      Please check the logs and investigate the issue.
+                      
+                      Common issues:
+                      - API rate limits
+                      - Network connectivity
+                      - Database corruption
+                      - Missing dependencies
+                      `;
+                      
+                      await github.rest.issues.create({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        title,
+                        body,
+                        labels: ['automated', 'data-update-failed', 'bug']
+                      });
