@@ -5,7 +5,37 @@
         "news": {},
         "github": {},
         "huggingface": {},
-        "arxiv": {}
+        "arxiv": {},
+        "stock_prices_NVDA": "2025-11-07T01:28:04.486525+00:00",
+        "stock_prices_MSFT": "2025-11-07T01:28:04.942125+00:00",
+        "stock_prices_AAPL": "2025-11-07T01:28:05.448044+00:00",
+        "stock_prices_AMZN": "2025-11-07T01:28:05.865698+00:00",
+        "stock_prices_GOOGL": "2025-11-07T01:28:06.260178+00:00",
+        "stock_prices_META": "2025-11-07T01:28:06.647398+00:00",
+        "stock_prices_AVGO": "2025-11-07T01:28:07.100266+00:00",
+        "stock_prices_TSM": "2025-11-07T01:28:07.512032+00:00",
+        "stock_prices_ORCL": "2025-11-07T01:28:07.915049+00:00",
+        "stock_prices_TSLA": "2025-11-07T01:28:08.318006+00:00",
+        "stock_prices_AMD": "2025-11-07T01:28:08.718841+00:00",
+        "stock_prices_ADBE": "2025-11-07T01:28:09.159185+00:00",
+        "stock_prices_CRM": "2025-11-07T01:28:09.565406+00:00",
+        "stock_prices_IBM": "2025-11-07T01:28:10.021004+00:00",
+        "stock_prices_ASML": "2025-11-07T01:28:10.486638+00:00",
+        "stock_prices_INTC": "2025-11-07T01:28:10.920913+00:00",
+        "stock_prices_QCOM": "2025-11-07T01:28:11.390692+00:00",
+        "stock_prices_MU": "2025-11-07T01:28:11.823215+00:00",
+        "stock_prices_AMAT": "2025-11-07T01:28:12.250549+00:00",
+        "stock_prices_NOW": "2025-11-07T01:28:13.127163+00:00",
+        "stock_prices_PLTR": "2025-11-07T01:28:13.519178+00:00",
+        "stock_prices_SNOW": "2025-11-07T01:28:13.909461+00:00",
+        "stock_prices_PATH": "2025-11-07T01:28:14.322440+00:00",
+        "stock_prices_AI": "2025-11-07T01:28:14.714077+00:00",
+        "stock_prices_SNPS": "2025-11-07T01:28:15.096243+00:00",
+        "stock_prices_CDNS": "2025-11-07T01:28:15.539780+00:00",
+        "stock_prices_DELL": "2025-11-07T01:28:16.792706+00:00",
+        "stock_prices_LRCX": "2025-11-07T01:28:12.714399+00:00",
+        "stock_prices_ARM": "2025-11-07T01:28:15.955048+00:00",
+        "stock_prices_SMCI": "2025-11-07T01:28:16.358212+00:00"
     },
     "github_metrics": {
         "test_repo": {
@@ -15,424 +45,424 @@
             "collected_at": "2025-11-05T03:19:31.062341"
         },
         "pytorch/pytorch": {
-            "stars": 94751,
-            "forks": 25809,
+            "stars": 94755,
+            "forks": 25810,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:06:33.724819"
+            "collected_at": "2025-11-07T02:15:02.112701"
         },
         "tensorflow/tensorflow": {
-            "stars": 192328,
+            "stars": 192329,
             "forks": 74960,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:06:40.499828"
+            "collected_at": "2025-11-07T02:15:08.008686"
         },
         "google/jax": {
-            "stars": 33903,
+            "stars": 33906,
             "forks": 3232,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:06:47.124868"
+            "collected_at": "2025-11-07T02:15:13.744061"
         },
         "triton-lang/triton": {
             "stars": 17486,
             "forks": 2362,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:06:52.470343"
+            "collected_at": "2025-11-07T02:15:18.396472"
         },
         "keras-team/keras": {
-            "stars": 63537,
+            "stars": 63538,
             "forks": 19646,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:06:58.273143"
+            "collected_at": "2025-11-07T02:15:22.813220"
         },
         "huggingface/transformers": {
-            "stars": 152181,
-            "forks": 31063,
+            "stars": 152184,
+            "forks": 31065,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:07:05.266430"
+            "collected_at": "2025-11-07T02:15:27.570999"
         },
         "huggingface/diffusers": {
-            "stars": 31507,
+            "stars": 31510,
             "forks": 6476,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:07:10.961654"
+            "collected_at": "2025-11-07T02:15:32.918184"
         },
         "huggingface/peft": {
-            "stars": 19995,
+            "stars": 19997,
             "forks": 2084,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:07:17.064015"
+            "collected_at": "2025-11-07T02:15:37.331752"
         },
         "huggingface/accelerate": {
-            "stars": 9266,
-            "forks": 1219,
+            "stars": 9267,
+            "forks": 1220,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:07:22.917364"
+            "collected_at": "2025-11-07T02:15:41.744292"
         },
         "huggingface/datasets": {
-            "stars": 20817,
+            "stars": 20818,
             "forks": 3001,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:07:28.528163"
+            "collected_at": "2025-11-07T02:15:46.556963"
         },
         "timdettmers/bitsandbytes": {
-            "stars": 7724,
+            "stars": 7725,
             "forks": 793,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:07:35.432988"
+            "collected_at": "2025-11-07T02:15:52.143922"
         },
         "microsoft/DeepSpeed": {
             "stars": 40624,
             "forks": 4613,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:07:41.725166"
+            "collected_at": "2025-11-07T02:15:57.611438"
         },
         "NVIDIA/Megatron-LM": {
             "stars": 14110,
             "forks": 3247,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:07:46.563963"
+            "collected_at": "2025-11-07T02:16:02.012747"
         },
         "EleutherAI/gpt-neox": {
             "stars": 7326,
             "forks": 1093,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:07:50.751123"
+            "collected_at": "2025-11-07T02:16:06.257609"
         },
         "bigscience-workshop/Megatron-DeepSpeed": {
             "stars": 1425,
             "forks": 228,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:07:55.174235"
+            "collected_at": "2025-11-07T02:16:10.502518"
         },
         "facebookresearch/fairscale": {
             "stars": 3385,
             "forks": 294,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:08:00.377577"
+            "collected_at": "2025-11-07T02:16:14.847275"
         },
         "google/maxtext": {
             "stars": 1951,
             "forks": 419,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:08:06.882075"
+            "collected_at": "2025-11-07T02:16:20.431744"
         },
         "NVIDIA/TensorRT": {
-            "stars": 12333,
+            "stars": 12334,
             "forks": 2264,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:08:12.011608"
+            "collected_at": "2025-11-07T02:16:24.643852"
         },
         "NVIDIA/TensorRT-LLM": {
             "stars": 12053,
             "forks": 1846,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:08:17.657706"
+            "collected_at": "2025-11-07T02:16:29.431013"
         },
         "microsoft/onnxruntime": {
-            "stars": 18308,
+            "stars": 18309,
             "forks": 3535,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:08:25.328319"
+            "collected_at": "2025-11-07T02:16:34.729539"
         },
         "onnx/onnx": {
             "stars": 19834,
             "forks": 3822,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:08:30.573710"
+            "collected_at": "2025-11-07T02:16:40.174144"
         },
         "pytorch/executorch": {
-            "stars": 3468,
+            "stars": 3469,
             "forks": 712,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:10:54.468723"
+            "collected_at": "2025-11-07T02:18:49.390669"
         },
         "tensorflow/tflite-support": {
             "stars": 426,
             "forks": 140,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:08:40.773752"
+            "collected_at": "2025-11-07T02:16:49.497339"
         },
         "google/mediapipe": {
-            "stars": 31844,
+            "stars": 31845,
             "forks": 5600,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:08:46.648524"
+            "collected_at": "2025-11-07T02:16:55.336799"
         },
         "NVIDIA/cutlass": {
             "stars": 8736,
             "forks": 1519,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:08:51.032487"
+            "collected_at": "2025-11-07T02:16:59.591507"
         },
         "NVIDIA/apex": {
             "stars": 8841,
             "forks": 1500,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:08:56.282445"
+            "collected_at": "2025-11-07T02:17:03.812379"
         },
         "Dao-AILab/flash-attention": {
-            "stars": 20371,
+            "stars": 20372,
             "forks": 2118,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:09:13.194933"
+            "collected_at": "2025-11-07T02:17:11.164141"
         },
         "google-research/t5x": {
             "stars": 2905,
             "forks": 336,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:09:17.253861"
+            "collected_at": "2025-11-07T02:17:17.467464"
         },
         "google-research/scenic": {
             "stars": 3703,
             "forks": 465,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:09:21.764742"
+            "collected_at": "2025-11-07T02:17:21.852534"
         },
         "intel/neural-compressor": {
             "stars": 2521,
             "forks": 282,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:09:26.301801"
+            "collected_at": "2025-11-07T02:17:26.528555"
         },
         "google/gemmlowp": {
             "stars": 1817,
             "forks": 456,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:09:32.423266"
+            "collected_at": "2025-11-07T02:17:34.315183"
         },
         "nod-ai/SHARK": {
             "stars": 1448,
             "forks": 167,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:09:38.374081"
+            "collected_at": "2025-11-07T02:17:40.081818"
         },
         "tensorflow/model-optimization": {
             "stars": 1558,
             "forks": 335,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:09:43.242064"
+            "collected_at": "2025-11-07T02:17:44.576368"
         },
         "NVIDIA/cuda-samples": {
             "stars": 8397,
             "forks": 2171,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:09:48.156177"
+            "collected_at": "2025-11-07T02:17:48.727715"
         },
         "NVIDIA/nccl": {
             "stars": 4212,
             "forks": 1063,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:09:53.269164"
+            "collected_at": "2025-11-07T02:17:55.258223"
         },
         "microsoft/DirectML": {
             "stars": 2523,
             "forks": 327,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:09:59.106770"
+            "collected_at": "2025-11-07T02:18:00.475660"
         },
         "oneapi-src/oneDNN": {
             "stars": 3911,
             "forks": 1080,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:10:05.521430"
+            "collected_at": "2025-11-07T02:18:06.189323"
         },
         "apple/ml-stable-diffusion": {
             "stars": 17667,
             "forks": 1026,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:10:14.717223"
+            "collected_at": "2025-11-07T02:18:13.707142"
         },
         "apple/coremltools": {
-            "stars": 5009,
+            "stars": 5010,
             "forks": 730,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:10:20.760959"
+            "collected_at": "2025-11-07T02:18:18.340602"
         },
         "google/XNNPACK": {
             "stars": 2156,
             "forks": 449,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:10:29.614390"
+            "collected_at": "2025-11-07T02:18:25.899368"
         },
         "llvm/torch-mlir": {
             "stars": 1670,
             "forks": 611,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:10:34.778977"
+            "collected_at": "2025-11-07T02:18:30.667594"
         },
         "openxla/xla": {
             "stars": 3657,
             "forks": 679,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:10:42.048987"
+            "collected_at": "2025-11-07T02:18:37.308951"
         },
         "google/iree": {
             "stars": 3446,
             "forks": 787,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:10:49.169451"
+            "collected_at": "2025-11-07T02:18:44.686237"
         },
         "pytorch/serve": {
             "stars": 4349,
             "forks": 889,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:10:59.820427"
+            "collected_at": "2025-11-07T02:18:54.288800"
         },
         "raspberrypi/pico-sdk": {
-            "stars": 4500,
-            "forks": 1147,
+            "stars": 4501,
+            "forks": 1148,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:11:06.579833"
+            "collected_at": "2025-11-07T02:19:00.676215"
         },
         "tensorflow/tflite-micro": {
             "stars": 2585,
             "forks": 954,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:11:11.825653"
+            "collected_at": "2025-11-07T02:19:06.661050"
         },
         "google-research/google-research": {
             "stars": 36673,
             "forks": 8232,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:11:16.544450"
+            "collected_at": "2025-11-07T02:19:11.309763"
         },
         "google-deepmind/gemma": {
             "stars": 3802,
-            "forks": 573,
+            "forks": 574,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:11:21.607767"
+            "collected_at": "2025-11-07T02:19:15.845767"
         },
         "meta-llama/llama": {
             "stars": 58905,
             "forks": 9812,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:11:26.778653"
+            "collected_at": "2025-11-07T02:19:20.484964"
         },
         "meta-llama/llama-recipes": {
             "stars": 18007,
             "forks": 2640,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:11:33.094269"
+            "collected_at": "2025-11-07T02:19:26.310354"
         },
         "karpathy/nanoGPT": {
-            "stars": 49051,
+            "stars": 49056,
             "forks": 8214,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:11:37.750254"
+            "collected_at": "2025-11-07T02:19:30.692045"
         },
         "karpathy/llama2.c": {
             "stars": 18915,
             "forks": 2400,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:11:42.262833"
+            "collected_at": "2025-11-07T02:19:34.949850"
         },
         "ggerganov/llama.cpp": {
-            "stars": 89256,
-            "forks": 13585,
+            "stars": 89262,
+            "forks": 13584,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:11:48.936365"
+            "collected_at": "2025-11-07T02:19:41.298017"
         },
         "ggerganov/whisper.cpp": {
-            "stars": 44296,
+            "stars": 44300,
             "forks": 4895,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:11:55.164371"
+            "collected_at": "2025-11-07T02:19:47.575132"
         },
         "open-mmlab/mmyolo": {
             "stars": 3324,
             "forks": 606,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:12:01.681884"
+            "collected_at": "2025-11-07T02:19:54.278671"
         },
         "open-mmlab/mmdetection": {
             "stars": 31948,
             "forks": 9781,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:12:06.396682"
+            "collected_at": "2025-11-07T02:19:59.094438"
         },
         "open-mmlab/mmsegmentation": {
             "stars": 9369,
             "forks": 2785,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:12:11.155502"
+            "collected_at": "2025-11-07T02:20:07.883930"
         },
         "vllm-project/vllm": {
-            "stars": 62343,
-            "forks": 11082,
+            "stars": 62349,
+            "forks": 11084,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:12:17.211015"
+            "collected_at": "2025-11-07T02:20:14.285915"
         },
         "Tencent/TNN": {
             "stars": 4589,
             "forks": 771,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:12:22.030124"
+            "collected_at": "2025-11-07T02:20:19.032900"
         },
         "sgl-project/sglang": {
-            "stars": 19869,
+            "stars": 19873,
             "forks": 3288,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:12:27.598230"
+            "collected_at": "2025-11-07T02:20:24.269779"
         },
         "guidance-ai/guidance": {
             "stars": 20895,
             "forks": 1123,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:12:32.639829"
+            "collected_at": "2025-11-07T02:20:29.030611"
         },
         "lucidrains/x-transformers": {
             "stars": 5668,
             "forks": 485,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:12:37.169375"
+            "collected_at": "2025-11-07T02:20:33.545201"
         },
         "lucidrains/PaLM-rlhf-pytorch": {
             "stars": 7868,
             "forks": 681,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:12:41.819490"
+            "collected_at": "2025-11-07T02:20:37.821614"
         },
         "state-spaces/mamba": {
-            "stars": 16346,
+            "stars": 16347,
             "forks": 1481,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:12:48.288672"
+            "collected_at": "2025-11-07T02:20:43.495593"
         },
         "NVIDIA/TransformerEngine": {
             "stars": 2888,
             "forks": 540,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:12:52.687697"
+            "collected_at": "2025-11-07T02:20:48.617504"
         },
         "pytorch/torchtune": {
             "stars": 5579,
             "forks": 679,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:12:58.698415"
+            "collected_at": "2025-11-07T02:20:54.629084"
         },
         "Lightning-AI/lit-gpt": {
             "stars": 12903,
             "forks": 1347,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:13:04.815875"
+            "collected_at": "2025-11-07T02:21:01.381654"
         },
         "bentoml/OpenLLM": {
             "stars": 11916,
             "forks": 786,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:13:10.500615"
+            "collected_at": "2025-11-07T02:21:06.329931"
         },
         "artidoro/qlora": {
             "stars": 10734,
             "forks": 865,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:13:17.565129"
+            "collected_at": "2025-11-07T02:21:11.935260"
         },
         "modal-labs/llm-finetuning": {
             "stars": 633,
             "forks": 103,
             "activity_score": 0.0,
-            "collected_at": "2025-11-07T00:13:22.497176"
+            "collected_at": "2025-11-07T02:21:16.335565"
         }
     },
     "huggingface_metrics": {
@@ -444,12 +474,12 @@
         "mradermacher/WR30a-Deep-7B-0711-i1-GGUF": {
             "downloads": 1350,
             "likes": 1,
-            "collected_at": "2025-11-07T00:14:28.587338"
+            "collected_at": "2025-11-07T02:21:36.062106"
         },
         "nineninesix/kani-tts-370m": {
             "downloads": 5049,
             "likes": 144,
-            "collected_at": "2025-11-07T00:14:13.517364"
+            "collected_at": "2025-11-07T02:22:06.704024"
         },
         "huihui-ai/Huihui-Qwen3-VL-32B-Thinking-abliterated": {
             "downloads": 3448,
@@ -459,77 +489,77 @@
         "mradermacher/Perseus-Doc-vl-071225-i1-GGUF": {
             "downloads": 1440,
             "likes": 1,
-            "collected_at": "2025-11-07T00:15:42.570554"
+            "collected_at": "2025-11-07T02:22:02.886249"
         },
         "NandemoGHS/Anime-Llasa-3B-Captions": {
             "downloads": 3386,
             "likes": 11,
-            "collected_at": "2025-11-07T00:13:53.364622"
+            "collected_at": "2025-11-07T02:23:15.507276"
         },
         "numind/NuExtract-2.0-2B": {
             "downloads": 3495,
             "likes": 32,
-            "collected_at": "2025-11-07T00:15:34.445829"
+            "collected_at": "2025-11-07T02:22:51.226982"
         },
         "PaddlePaddle/PaddleOCR-VL": {
             "downloads": 33552,
-            "likes": 1217,
-            "collected_at": "2025-11-07T00:14:57.528895"
+            "likes": 1218,
+            "collected_at": "2025-11-07T02:22:13.486838"
         },
         "Derify/ChemMRL": {
             "downloads": 4309,
             "likes": 0,
-            "collected_at": "2025-11-07T00:14:08.521525"
+            "collected_at": "2025-11-07T02:22:55.539321"
         },
         "nvidia/llama-embed-nemotron-8b": {
             "downloads": 89790,
             "likes": 56,
-            "collected_at": "2025-11-07T00:13:58.474324"
+            "collected_at": "2025-11-07T02:22:08.827161"
         },
         "noctrex/LightOnOCR-1B-1025-i1-GGUF": {
             "downloads": 6008,
             "likes": 1,
-            "collected_at": "2025-11-07T00:15:13.209704"
+            "collected_at": "2025-11-07T02:21:46.206480"
         },
         "wangkanai/wan22-fp16-encoders-gguf": {
             "downloads": 6011,
             "likes": 1,
-            "collected_at": "2025-11-07T00:15:31.426219"
+            "collected_at": "2025-11-07T02:21:54.422084"
         },
         "mradermacher/Lh41-1042-Magellanic-7B-0711-i1-GGUF": {
             "downloads": 1233,
             "likes": 0,
-            "collected_at": "2025-11-07T00:15:40.098952"
+            "collected_at": "2025-11-07T02:22:35.059443"
         },
         "qualcomm/MediaPipe-Hand-Detection": {
             "downloads": 1653,
             "likes": 31,
-            "collected_at": "2025-11-07T00:15:04.984095"
+            "collected_at": "2025-11-07T02:22:00.541458"
         },
         "krea/krea-realtime-video": {
             "downloads": 2422,
             "likes": 243,
-            "collected_at": "2025-11-07T00:15:28.664239"
+            "collected_at": "2025-11-07T02:23:00.106590"
         },
         "qualcomm/3D-Deep-BOX": {
             "downloads": 1061,
             "likes": 1,
-            "collected_at": "2025-11-07T00:13:43.460316"
+            "collected_at": "2025-11-07T02:22:40.191386"
         },
         "lightonai/LightOnOCR-1B-1025": {
             "downloads": 12995,
             "likes": 146,
-            "collected_at": "2025-11-07T00:14:03.560021"
+            "collected_at": "2025-11-07T02:23:17.665163"
         },
         "meituan-longcat/LongCat-Video": {
             "downloads": 1723,
             "likes": 293,
-            "collected_at": "2025-11-07T00:15:25.551389"
+            "collected_at": "2025-11-07T02:21:56.469278"
         },
         "QuantStack/Wan2.2_T2V_A14B_4steps_25-09-28_Dyno_High_lightx2v-GGUF": {
             "downloads": 4564,
             "likes": 11,
-            "collected_at": "2025-11-07T00:14:06.091167"
+            "collected_at": "2025-11-07T02:21:40.151426"
         },
         "huihui-ai/Huihui-Qwen3-VL-32B-Instruct-abliterated": {
             "downloads": 3596,
@@ -539,27 +569,27 @@
         "numind/NuExtract-2.0-8B": {
             "downloads": 2747,
             "likes": 41,
-            "collected_at": "2025-11-07T00:15:02.566685"
+            "collected_at": "2025-11-07T02:21:42.176786"
         },
         "rand0nmr/SFWan2.2-T2V-A14B-Diffusers": {
             "downloads": 15976,
             "likes": 0,
-            "collected_at": "2025-11-07T00:15:16.265263"
+            "collected_at": "2025-11-07T02:22:42.533937"
         },
         "rand0nmr/SFWan2.1-T2V-A1.3B-Diffusers": {
             "downloads": 30776,
             "likes": 0,
-            "collected_at": "2025-11-07T00:14:55.066370"
+            "collected_at": "2025-11-07T02:22:24.447025"
         },
         "bichuche0705/highway-vehicle-detection-code": {
             "downloads": 2279,
             "likes": 0,
-            "collected_at": "2025-11-07T00:14:36.088984"
+            "collected_at": "2025-11-07T02:21:38.161970"
         },
         "rand0nmr/SFWan2.2-T2V-14B-Diffusers": {
             "downloads": 7471,
             "likes": 0,
-            "collected_at": "2025-11-07T00:14:25.965024"
+            "collected_at": "2025-11-07T02:22:21.039656"
         },
         "huihui-ai/Huihui-Qwen3-VL-30B-A3B-Instruct-abliterated": {
             "downloads": 81577,
@@ -574,37 +604,37 @@
         "mahwizzzz/orpheus-urdu-tts": {
             "downloads": 1242,
             "likes": 3,
-            "collected_at": "2025-11-07T00:15:00.005789"
+            "collected_at": "2025-11-07T02:21:52.316401"
         },
         "nineninesix/kani-tts-450m-0.2-pt": {
             "downloads": 1767,
             "likes": 7,
-            "collected_at": "2025-11-07T00:15:09.886380"
+            "collected_at": "2025-11-07T02:23:20.094091"
         },
         "noctrex/Pixtral-12B-Captioner-Relaxed-GGUF": {
             "downloads": 2359,
             "likes": 0,
-            "collected_at": "2025-11-07T00:14:21.021889"
+            "collected_at": "2025-11-07T02:22:18.345428"
         },
         "VIZINTZOR/MMS-TTS-THAI-FEMALEV2": {
             "downloads": 1307,
             "likes": 0,
-            "collected_at": "2025-11-07T00:14:47.005456"
+            "collected_at": "2025-11-07T02:22:53.379642"
         },
         "Soul-AILab/SoulX-Podcast-1.7B": {
             "downloads": 1385,
             "likes": 178,
-            "collected_at": "2025-11-07T00:14:50.041679"
+            "collected_at": "2025-11-07T02:22:37.877824"
         },
         "KaLM-Embedding/KaLM-embedding-multilingual-mini-instruct-v2.5": {
             "downloads": 8005,
             "likes": 38,
-            "collected_at": "2025-11-07T00:15:19.327083"
+            "collected_at": "2025-11-07T02:21:50.329502"
         },
         "qualcomm/MediaPipe-Face-Detection": {
             "downloads": 2372,
             "likes": 26,
-            "collected_at": "2025-11-07T00:13:55.838567"
+            "collected_at": "2025-11-07T02:21:58.521136"
         },
         "ZJU-AI4H/Hulu-Med-7B": {
             "downloads": 1664,
@@ -614,7 +644,7 @@
         "infly/inf-retriever-v1-1.5b": {
             "downloads": 4691,
             "likes": 43,
-            "collected_at": "2025-11-07T00:15:22.372253"
+            "collected_at": "2025-11-07T02:23:11.142564"
         },
         "mradermacher/Qwen3-VL-8B-Abliterated-Caption-it-i1-GGUF": {
             "downloads": 2755,
@@ -624,12 +654,12 @@
         "noctrex/Chandra-OCR-GGUF": {
             "downloads": 11270,
             "likes": 3,
-            "collected_at": "2025-11-07T00:15:37.109130"
+            "collected_at": "2025-11-07T02:22:15.768602"
         },
         "CypressYang/SongBloom": {
             "downloads": 1425,
             "likes": 114,
-            "collected_at": "2025-11-07T00:14:33.633261"
+            "collected_at": "2025-11-07T02:22:10.983385"
         },
         "deepseek-ai/DeepSeek-OCR": {
             "downloads": 2249385,
@@ -639,72 +669,77 @@
         "numind/NuExtract-2.0-4B": {
             "downloads": 2820,
             "likes": 21,
-            "collected_at": "2025-11-07T00:13:46.010823"
+            "collected_at": "2025-11-07T02:22:46.950893"
         },
         "maya-research/maya1": {
             "downloads": 1914,
-            "likes": 220,
-            "collected_at": "2025-11-07T00:13:48.427587"
+            "likes": 223,
+            "collected_at": "2025-11-07T02:22:29.706813"
         },
         "noctrex/LightOnOCR-1B-1025-GGUF": {
             "downloads": 1362,
             "likes": 1,
-            "collected_at": "2025-11-07T00:13:50.904445"
+            "collected_at": "2025-11-07T02:23:13.370350"
         },
         "geoffmunn/Qwen3-Coder-30B-A3B-Instruct-f16": {
             "downloads": 1495,
             "likes": 1,
-            "collected_at": "2025-11-07T00:14:01.029416"
+            "collected_at": "2025-11-07T02:22:27.200840"
         },
         "rtr46/meiki.text.detect.v0": {
             "downloads": 2913,
             "likes": 0,
-            "collected_at": "2025-11-07T00:14:11.026978"
+            "collected_at": "2025-11-07T02:21:48.222610"
         },
         "ibm-granite/granite-embedding-english-r2": {
             "downloads": 12020,
             "likes": 70,
-            "collected_at": "2025-11-07T00:14:16.033777"
+            "collected_at": "2025-11-07T02:22:49.084144"
         },
         "yonigozlan/EdgeTAM-hf": {
             "downloads": 4881,
             "likes": 4,
-            "collected_at": "2025-11-07T00:14:18.572608"
+            "collected_at": "2025-11-07T02:23:08.971430"
         },
         "QuantStack/HoloCine-GGUF": {
             "downloads": 1113,
-            "likes": 6,
-            "collected_at": "2025-11-07T00:14:23.548420"
+            "likes": 7,
+            "collected_at": "2025-11-07T02:22:44.827136"
         },
         "Mungert/maya1-GGUF": {
             "downloads": 1961,
             "likes": 0,
-            "collected_at": "2025-11-07T00:14:31.043626"
+            "collected_at": "2025-11-07T02:23:06.867444"
         },
         "nineninesix/kani-tts-400m-en": {
             "downloads": 1261,
             "likes": 35,
-            "collected_at": "2025-11-07T00:14:38.516871"
+            "collected_at": "2025-11-07T02:21:44.181241"
         },
         "OrcaDB/distilbert-base-uncased": {
             "downloads": 3899,
             "likes": 0,
-            "collected_at": "2025-11-07T00:14:41.071480"
+            "collected_at": "2025-11-07T02:23:04.574928"
         },
         "line-corporation/clip-japanese-base": {
             "downloads": 50300,
             "likes": 28,
-            "collected_at": "2025-11-07T00:14:43.823015"
+            "collected_at": "2025-11-07T02:22:32.467149"
         },
         "ench100/bodyandface": {
             "downloads": 1148,
             "likes": 1,
-            "collected_at": "2025-11-07T00:14:52.627996"
+            "collected_at": "2025-11-07T02:22:57.648781"
         },
         "bezzam/VibeVoice-1.5B": {
             "downloads": 1079,
             "likes": 0,
             "collected_at": "2025-11-07T00:15:07.455516"
+        },
+        "noctrex/Qwen3-Coder-REAP-25B-A3B-MXFP4_MOE-GGUF": {
+            "downloads": 1188,
+            "likes": 3,
+            "collected_at": "2025-11-07T02:23:02.317541"
         }
     }
 }

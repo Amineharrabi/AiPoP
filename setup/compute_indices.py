@@ -212,13 +212,40 @@ def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
         # Table might not exist yet, which is fine - it will be created with computed_at
         pass
     
-    # First, check if we should insert a new point
-    # We'll insert a new point if:
-    # 1. There's no existing point for the latest date, OR
-    # 2. The latest existing point is older than 1 hour (to allow hourly updates)
+    # Reset the table to ensure clean state
+    conn.execute("DROP TABLE IF EXISTS bubble_metrics")
+    
+    # Create fresh table with correct timestamp type
+    conn.execute("""
+    CREATE TABLE bubble_metrics (
+        time_id INTEGER,
+        date DATE,
+        computed_at TIMESTAMP WITHOUT TIME ZONE,
+        hype_index DOUBLE,
+        reality_index DOUBLE,
+        hype_7d_avg DOUBLE,
+        reality_7d_avg DOUBLE,
+        hype_30d_avg DOUBLE,
+        reality_30d_avg DOUBLE,
+        hype_reality_gap DOUBLE,
+        hype_reality_ratio DOUBLE,
+        bubble_momentum DOUBLE,
+        sentiment_bubble_momentum DOUBLE,
+        github_trending_bubble_momentum DOUBLE,
+        trending_reality_divergence DOUBLE,
+        hype_score DOUBLE,
+        reality_score DOUBLE,
+        bubble_risk_score DOUBLE
+    )
+    """)
+    
+    # Insert the data with explicit timestamp handling
     conn.execute("""
     INSERT INTO bubble_metrics
     WITH 
+    current_ts AS (
+        SELECT CAST(CURRENT_TIMESTAMP AS TIMESTAMP WITHOUT TIME ZONE) as now
+    ),
     -- Join indices and compute rolling averages with multi-source components
     rolling_metrics AS (
         SELECT 
@@ -282,10 +309,12 @@ def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
                 -- If no existing data, always insert
                 WHEN NOT EXISTS (SELECT 1 FROM bubble_metrics) THEN TRUE
                 -- If latest existing point is older than 1 minute, insert new point
-                -- This allows frequent updates (e.g., every 10 minutes for stock data)
-                WHEN (SELECT MAX(computed_at) FROM bubble_metrics) < CURRENT_TIMESTAMP - INTERVAL '1 minute' THEN TRUE
+                WHEN COALESCE((SELECT MAX(computed_at) FROM bubble_metrics), 
+                            CAST('1970-01-01' AS TIMESTAMP WITHOUT TIME ZONE)) < 
+                     (SELECT now FROM current_ts) - INTERVAL '1 minute' THEN TRUE
                 -- If latest existing point is for a different date, insert new point
-                WHEN (SELECT MAX(date) FROM bubble_metrics) < lm.date THEN TRUE
+                WHEN COALESCE((SELECT MAX(date) FROM bubble_metrics), 
+                            CAST('1970-01-01' AS DATE)) < lm.date THEN TRUE
                 -- Otherwise, don't insert (avoid duplicates within same minute)
                 ELSE FALSE
             END as should_insert_flag
@@ -294,7 +323,7 @@ def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
     SELECT 
         time_id,
         date,
-        CURRENT_TIMESTAMP as computed_at,
+        (SELECT now FROM current_ts) as computed_at,
         hype_index,
         reality_index,
         hype_7d_avg,

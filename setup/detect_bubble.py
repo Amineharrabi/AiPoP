@@ -33,6 +33,9 @@ class BubbleAlert:
     confidence: float
     contributing_factors: Dict[str, float]
 
+
+
+
 class BubbleDetector:
     def __init__(self):
         self.warehouse_path = os.path.join(
@@ -91,12 +94,24 @@ class BubbleDetector:
 
     def compute_divergence(self, hype: pd.Series, reality: pd.Series) -> pd.Series:
         """Compute normalized divergence between hype and reality"""
+        # Check if inputs are pandas Series, if not convert them
+        if not isinstance(hype, pd.Series):
+            hype = pd.Series(hype)
+        if not isinstance(reality, pd.Series):
+            reality = pd.Series(reality)
+
+        # Make sure both series have an index
+        if hype.index is None:
+            hype.index = np.arange(len(hype))
+        if reality.index is None:
+            reality.index = np.arange(len(reality))
+
         # Normalize using robust scaling
         scaler = RobustScaler()
         hype_norm = scaler.fit_transform(hype.values.reshape(-1, 1)).flatten()
         reality_norm = scaler.fit_transform(reality.values.reshape(-1, 1)).flatten()
         
-        # Compute divergence
+        # Compute divergence using the index from hype
         divergence = pd.Series(
             hype_norm - reality_norm,
             index=hype.index
@@ -106,6 +121,13 @@ class BubbleDetector:
 
     def compute_acceleration(self, divergence: pd.Series) -> pd.Series:
         """Compute acceleration (second derivative) of divergence"""
+        # Ensure input is a pandas Series
+        if not isinstance(divergence, pd.Series):
+            if isinstance(divergence, np.ndarray):
+                divergence = pd.Series(divergence)
+            else:
+                divergence = pd.Series(np.array(divergence))
+        
         # First derivative (velocity)
         velocity = divergence.diff()
         
@@ -121,22 +143,43 @@ class BubbleDetector:
                             current_pattern: pd.Series,
                             normalize: bool = True) -> float:
         """Compute DTW distance to historical bubble patterns"""
+        # Ensure input is a pandas Series
+        if not isinstance(current_pattern, pd.Series):
+            if isinstance(current_pattern, np.ndarray):
+                current_pattern = pd.Series(current_pattern)
+            else:
+                current_pattern = pd.Series(np.array(current_pattern))
+        
         if normalize:
-            current = (current_pattern - current_pattern.mean()) / current_pattern.std()
+            # Handle zero standard deviation case
+            std = current_pattern.std()
+            if std == 0:
+                current = pd.Series(np.zeros_like(current_pattern))
+            else:
+                current = (current_pattern - current_pattern.mean()) / std
         else:
             current = current_pattern
             
         distances = []
         for name, template in self.templates.items():
             try:
-                # Normalize template
-                template_norm = (template - template.mean()) / template.std()
+                # Ensure template is a pandas Series/DataFrame
+                if isinstance(template, np.ndarray):
+                    template = pd.Series(template)
+                
+                # Handle zero standard deviation case for template
+                template_std = template.std()
+                if template_std == 0:
+                    template_norm = pd.Series(np.zeros_like(template))
+                else:
+                    template_norm = (template - template.mean()) / template_std
+                
+                # Convert to numpy arrays for DTW
+                current_array = current.values
+                template_array = template_norm.values
                 
                 # Compute DTW distance
-                distance = dtw.distance(
-                    current.values,
-                    template_norm.values
-                )
+                distance = dtw.distance(current_array, template_array)
                 distances.append(distance)
             except Exception as e:
                 logger.warning(f"Error computing DTW for {name}: {str(e)}")
@@ -193,49 +236,42 @@ class BubbleDetector:
         return results
 
     def generate_alerts(self, 
-                       entity_id: int,
-                       divergence: pd.Series,
-                       acceleration: pd.Series,
-                       pattern_score: float) -> List[BubbleAlert]:
+                    entity_id: int,
+                    divergence: pd.Series,
+                    acceleration: pd.Series,
+                    pattern_score: float) -> List[BubbleAlert]:
         """Generate multi-tier alerts based on detection results - only for latest/most significant point"""
         alerts = []
         
-        # Handle NaN values in acceleration (first values will be NaN due to diff operations)
+        # Handle NaN values in acceleration
         acceleration_clean = acceleration.dropna()
         if len(acceleration_clean) == 0:
-            # If all acceleration values are NaN, create a zero series
             acceleration_clean = pd.Series([0.0] * len(divergence), index=divergence.index)
-        
-        # Align acceleration with divergence (use forward fill for missing values)
+        else:
+            acceleration_clean = acceleration_clean  # already clean
+
+        # Align acceleration with divergence
         acceleration_aligned = acceleration.reindex(divergence.index, method='ffill').fillna(0.0)
         
-        # Compute z-scores, handling NaN values
-        div_z = zscore(divergence.dropna())
-        if len(div_z) == 0:
+        # Compute z-scores for divergence
+        div_clean = divergence.dropna()
+        if len(div_clean) == 0:
             return alerts
+
+        div_z = zscore(div_clean)
+        div_z_series = pd.Series(div_z, index=div_clean.index)
+        div_z_mapped = div_z_series.reindex(divergence.index, fill_value=0.0)
         
-        # Map z-scores back to original index
-        div_z_mapped = pd.Series(index=divergence.index, dtype=float)
-        for idx in divergence.index:
-            if idx in div_z.index:
-                div_z_mapped[idx] = div_z[idx]
-            else:
-                div_z_mapped[idx] = 0.0
-        
-        # Compute acceleration z-scores only for non-NaN values
-        acc_z_mapped = pd.Series(index=divergence.index, dtype=float)
-        if len(acceleration_clean) > 0:
-            acc_z = zscore(acceleration_clean)
-            for idx in divergence.index:
-                if idx in acc_z.index:
-                    acc_z_mapped[idx] = acc_z[idx]
-                else:
-                    acc_z_mapped[idx] = 0.0
+        # Compute z-scores for acceleration
+        acc_clean = acceleration_aligned.dropna()
+        if len(acc_clean) > 0:
+            acc_z = zscore(acc_clean)
+            acc_z_series = pd.Series(acc_z, index=acc_clean.index)
+            acc_z_mapped = acc_z_series.reindex(divergence.index, fill_value=0.0)
         else:
             acc_z_mapped = pd.Series([0.0] * len(divergence), index=divergence.index)
         
-        # Only generate alert for the LATEST timestamp that meets criteria
-        # This prevents duplicates and focuses on current state
+        # Only generate alert for the latest timestamp
         latest_timestamp = divergence.index[-1]
         div_score = div_z_mapped[latest_timestamp]
         acc_score = acc_z_mapped[latest_timestamp]
@@ -245,16 +281,12 @@ class BubbleDetector:
             level = 'critical'
         elif div_score > self.warning_threshold and pattern_score > 0.6:
             level = 'warning'
-        elif div_score > self.watch_threshold or (not pd.isna(acc_score) and acc_score > 2.0):
+        elif div_score > self.watch_threshold or acc_score > 2.0:
             level = 'watch'
         else:
-            return alerts  # No alert needed
+            return alerts
         
-        # Handle NaN acceleration score
-        if pd.isna(acc_score):
-            acc_score = 0.0
-        
-        # Create alert with contributing factors
+        # Create alert
         alert = BubbleAlert(
             level=level,
             timestamp=latest_timestamp,
@@ -380,6 +412,7 @@ class BubbleDetector:
             lookback_days: Number of days to look back. If None, uses all available data.
         """
         try:
+            logger.info("Starting bubble detection...")
             conn = duckdb.connect(self.warehouse_path)
             
             # Build date filter - use all data if lookback_days is None
@@ -466,11 +499,17 @@ class BubbleDetector:
                 entity_data = entity_data.set_index('date')
                 entity_data.index = pd.to_datetime(entity_data.index)
                 
+                # Ensure numeric columns are properly typed and handle NaN values
+                numeric_columns = ['hype_index', 'reality_index', 'hype_reality_gap']
+                for col in numeric_columns:
+                    entity_data[col] = pd.to_numeric(entity_data[col], errors='coerce').fillna(0)
+                
+                # Convert to pandas Series with proper index
+                hype_series = pd.Series(entity_data['hype_index'], index=entity_data.index)
+                reality_series = pd.Series(entity_data['reality_index'], index=entity_data.index)
+                
                 # Compute metrics
-                divergence = self.compute_divergence(
-                    entity_data['hype_index'],
-                    entity_data['reality_index']
-                )
+                divergence = self.compute_divergence(hype_series, reality_series)
                 
                 acceleration = self.compute_acceleration(divergence)
                 
