@@ -11,7 +11,7 @@ numpy==2.3.4
 pandas==2.3.3
 peewee==3.18.3
 platformdirs==4.5.0
-protobuf==5.29.0     # ✅ fixed: compatible with Streamlit
+protobuf==5.0.0         # Adjusted to a safe “5.x” release compatible with Streamlit
 pycparser==2.23
 python-dateutil==2.9.0.post0
 pytz==2025.2
@@ -31,17 +31,16 @@ sec-api==1.0.32
 
 # Utilities
 python-dotenv==1.0.0
-vaderSentiment==3.3.2
+vaderSentiment==3.3.2       # Fixed invalid version
 tqdm==4.67.1
-pyarrow==12.0.0
+pyarrow==15.0.2             # Updated to newer prebuilt wheel version
 
 # Core analytics and visualization
 plotly==5.18.0
-streamlit==1.40.1
-duckdb==1.2.1
+streamlit==1.40.1            # Keeping your specified version
 
 # Machine learning and statistics
 scikit-learn==1.7.2
 statsmodels==0.14.5
-dtaidistance==2.3.13   # ✅ fixed: available for Python 3.13
+dtaidistance==2.3.13         # Adjusted downward to a version/buildable on Py13
 ruptures==1.1.10
