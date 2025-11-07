@@ -44,7 +44,7 @@ jobs:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
           REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           HF_ACCESS_TOKEN: ${{ secrets.HF_ACCESS_TOKEN }}
           NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
 
@@ -61,7 +61,7 @@ jobs:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
           REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           HF_ACCESS_TOKEN: ${{ secrets.HF_ACCESS_TOKEN }}
           NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
 
@@ -81,7 +81,7 @@ jobs:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
           REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           HF_ACCESS_TOKEN: ${{ secrets.HF_ACCESS_TOKEN }}
           NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
 
@@ -130,6 +130,8 @@ jobs:
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+          git remote set-url origin https://x-access-token:$$ {{ secrets.GH_PAT }}@github.com/ $${{ github.repository }}.git
 
           # Stage database file
           git add data/warehouse/ai_bubble.duckdb
