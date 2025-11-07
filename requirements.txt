@@ -31,7 +31,7 @@ sec-api==1.0.32
 
 # Utilities
 python-dotenv==1.0.0
-vaderSentiment==3.3.3
+vaderSentiment==3.3.2    # fixed: 3.3.3 does not exist on PyPI
 tqdm==4.67.1
 pyarrow==12.0.0
 
