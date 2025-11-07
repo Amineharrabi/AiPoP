@@ -212,6 +212,10 @@ def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
         # Table might not exist yet, which is fine - it will be created with computed_at
         pass
     
+    # First, check if we should insert a new point
+    # We'll insert a new point if:
+    # 1. There's no existing point for the latest date, OR
+    # 2. The latest existing point is older than 1 hour (to allow hourly updates)
     conn.execute("""
     INSERT INTO bubble_metrics
     WITH 
@@ -268,6 +272,24 @@ def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
         SELECT *
         FROM rolling_metrics
         WHERE date = (SELECT MAX(date) FROM rolling_metrics)
+    ),
+    -- Check if we should insert (avoid duplicates within the same minute)
+    -- This allows multiple updates per day while preventing exact duplicates
+    should_insert AS (
+        SELECT 
+            lm.*,
+            CASE 
+                -- If no existing data, always insert
+                WHEN NOT EXISTS (SELECT 1 FROM bubble_metrics) THEN TRUE
+                -- If latest existing point is older than 1 minute, insert new point
+                -- This allows frequent updates (e.g., every 10 minutes for stock data)
+                WHEN (SELECT MAX(computed_at) FROM bubble_metrics) < CURRENT_TIMESTAMP - INTERVAL '1 minute' THEN TRUE
+                -- If latest existing point is for a different date, insert new point
+                WHEN (SELECT MAX(date) FROM bubble_metrics) < lm.date THEN TRUE
+                -- Otherwise, don't insert (avoid duplicates within same minute)
+                ELSE FALSE
+            END as should_insert_flag
+        FROM latest_metrics lm
     )
     SELECT 
         time_id,
@@ -320,7 +342,8 @@ def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
             ABS((hype_7d_avg - reality_7d_avg) - (hype_30d_avg - reality_30d_avg)) * 0.3 +
             ABS((trending_component - cumulative_impact_component)) * 0.3
         ) * 100 as bubble_risk_score
-    FROM latest_metrics;
+    FROM should_insert
+    WHERE should_insert_flag = TRUE;
     """)
 
 def compute_entity_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:

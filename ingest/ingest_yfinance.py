@@ -9,7 +9,7 @@ import sys
 
 # Add the setup directory to path to import DataManager
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'setup'))
-from data_manager import DataManager
+from setup.data_manager import DataManager
 import duckdb
 
 # Configure logging

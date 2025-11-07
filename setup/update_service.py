@@ -17,17 +17,25 @@ class DataUpdateOrchestrator:
     def __init__(self):
         self.data_manager = DataManager()
         self.setup_logging()
+        # Setup project root path once
+        self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        import sys
+        if self.project_root not in sys.path:
+            sys.path.insert(0, self.project_root)
         
     def run_processing_pipeline(self):
         """Run the full processing pipeline"""
         try:
             logger.info("Running processing pipeline...")
-            from run_pipeline import Pipeline
+            from setup.run_pipeline import Pipeline
             pipeline = Pipeline()
-            pipeline.run(incremental=True)
+            # Use direct mode to skip ingestion and start at load_warehouse
+            # This assumes data has already been ingested and we just need to recompute features
+            pipeline.run(incremental=True, direct=True)
             logger.info("Processing pipeline completed successfully")
         except Exception as e:
             logger.error(f"Error running processing pipeline: {str(e)}")
+            raise
 
     def setup_logging(self):
         # Create logs directory if it doesn't exist
@@ -45,14 +53,16 @@ class DataUpdateOrchestrator:
         if self.data_manager.should_update('stock_prices'):
             try:
                 logger.info("Updating stock price data...")
-                # Import and run the stock data update script
-                from ingest_yfinance import update_stock_data
+                from ingest.ingest_yfinance import update_stock_data
                 update_stock_data()
                 
                 self.data_manager.update_last_update(
                     'stock_prices',
                     datetime.now(pytz.UTC).isoformat()
                 )
+                
+                # Run processing pipeline after stock data update
+                self.run_processing_pipeline()
             except Exception as e:
                 logger.error(f"Error updating stock data: {str(e)}")
 
@@ -61,13 +71,16 @@ class DataUpdateOrchestrator:
         if self.data_manager.should_update('reddit'):
             try:
                 logger.info("Updating Reddit data...")
-                from ingest_reddit import update_reddit_data
+                from ingest.ingest_reddit import main as update_reddit_data
                 update_reddit_data()
                 
                 self.data_manager.update_last_update(
                     'reddit',
                     datetime.now(pytz.UTC).isoformat()
                 )
+                
+                # Run processing pipeline after reddit data update
+                self.run_processing_pipeline()
             except Exception as e:
                 logger.error(f"Error updating Reddit data: {str(e)}")
 
@@ -76,39 +89,54 @@ class DataUpdateOrchestrator:
         if self.data_manager.should_update('news'):
             try:
                 logger.info("Updating news data...")
-                from ingest_news import update_news_data
+                from ingest.ingest_news import main as update_news_data
                 update_news_data()
                 
                 self.data_manager.update_last_update(
                     'news',
                     datetime.now(pytz.UTC).isoformat()
                 )
+                
+                # Run processing pipeline after news data update
+                self.run_processing_pipeline()
             except Exception as e:
                 logger.error(f"Error updating news data: {str(e)}")
 
     def update_github_data(self):
-        """Update GitHub data every 6 hours"""
+        """Update GitHub data every 6 hours (also updates HuggingFace data)"""
         if self.data_manager.should_update('github'):
             try:
-                logger.info("Updating GitHub data...")
-                from ingest_github_hf import update_github_data
+                logger.info("Updating GitHub and HuggingFace data...")
+                from ingest.ingest_github_hf import main as update_github_data
                 update_github_data()
                 
+                # Update both timestamps since both are updated together
                 self.data_manager.update_last_update(
                     'github',
                     datetime.now(pytz.UTC).isoformat()
                 )
+                self.data_manager.update_last_update(
+                    'huggingface',
+                    datetime.now(pytz.UTC).isoformat()
+                )
+                
+                # Run processing pipeline after github/huggingface data update
+                self.run_processing_pipeline()
             except Exception as e:
                 logger.error(f"Error updating GitHub data: {str(e)}")
 
     def update_huggingface_data(self):
-        """Update HuggingFace data every 6 hours"""
+        """Update HuggingFace data every 6 hours
+        
+        Note: HuggingFace data is updated together with GitHub data
+        in the same script (ingest_github_hf.py), so this is a no-op
+        that just updates the timestamp.
+        """
         if self.data_manager.should_update('huggingface'):
             try:
                 logger.info("Updating HuggingFace data...")
-                from ingest_github_hf import update_huggingface_data
-                update_huggingface_data()
-                
+                # HuggingFace data is updated together with GitHub data
+                # So we just update the timestamp
                 self.data_manager.update_last_update(
                     'huggingface',
                     datetime.now(pytz.UTC).isoformat()
@@ -121,7 +149,7 @@ class DataUpdateOrchestrator:
         if self.data_manager.should_update('arxiv'):
             try:
                 logger.info("Updating arXiv data...")
-                from ingest_arxiv import update_arxiv_data
+                from ingest.ingest_arxiv import main as update_arxiv_data
                 update_arxiv_data()
                 
                 self.data_manager.update_last_update(
@@ -129,7 +157,7 @@ class DataUpdateOrchestrator:
                     datetime.now(pytz.UTC).isoformat()
                 )
                 
-                # Run processing pipeline after arxiv update since it's the last daily update
+                # Run processing pipeline after arxiv update
                 self.run_processing_pipeline()
             except Exception as e:
                 logger.error(f"Error updating arXiv data: {str(e)}")
@@ -143,15 +171,15 @@ class DataUpdateOrchestrator:
         schedule.every(1).hours.do(self.update_reddit_data)
         schedule.every(1).hours.do(self.update_news_data)
         
-        # GitHub and HuggingFace every 6 hours
+        # GitHub every 6 hours (HuggingFace is updated together with GitHub)
         schedule.every(6).hours.do(self.update_github_data)
-        schedule.every(6).hours.do(self.update_huggingface_data)
         
         # ArXiv daily
         schedule.every(1).days.at("00:00").do(self.update_arxiv_data)
         
-        # Run processing pipeline every 6 hours (after major data updates)
-        schedule.every(6).hours.do(self.run_processing_pipeline)
+        # Note: Pipeline is now run after each data update, so we don't need
+        # a separate scheduled pipeline run. This ensures features are recomputed
+        # and new graph points are added immediately after data updates.
 
     def run(self):
         """Run the update service"""

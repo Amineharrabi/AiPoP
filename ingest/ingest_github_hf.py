@@ -33,7 +33,7 @@ os.makedirs(STAGING_DIR, exist_ok=True)
 
 # Import DataManager for delta calculations
 sys.path.append(os.path.join(BASE_DIR, 'setup'))
-from data_manager import DataManager
+from setup.data_manager import DataManager
 
 GITHUB_REPOS = [
     # Core Deep Learning Frameworks

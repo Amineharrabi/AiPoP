@@ -154,11 +154,15 @@ class Pipeline:
             conn = duckdb.connect(warehouse_path)
             
             # Check for key tables to determine completion
+            # Note: compute_indices is intentionally NOT marked as completed here
+            # because it needs to run every time to add new data points to bubble_metrics.
+            # The table existing doesn't mean the stage is "done" - it needs to run
+            # incrementally to append new points.
             tables = {
                 'setup_duckdb': ['dim_entity', 'dim_time'],
                 'load_warehouse': ['fact_metrics', 'fact_signals'],
                 'compute_features': ['combined_features'],
-                'compute_indices': ['bubble_metrics', 'entity_bubble_metrics'],
+                # 'compute_indices' intentionally omitted - always runs to add new points
                 'detect_bubble': ['bubble_alerts']
             }
             
@@ -190,6 +194,9 @@ class Pipeline:
         # If direct is requested, mark setup and ingestion stages as completed so
         # the pipeline begins at load_warehouse. This intentionally overrides
         # checking the DB for completed stages when direct=True.
+        # Note: In direct mode, we always run processing stages (load_warehouse, 
+        # compute_features, compute_indices, detect_bubble) to ensure new data points
+        # are added to the graph with each update.
         if direct:
             completed_stages = [
                 'setup_duckdb',
@@ -200,7 +207,8 @@ class Pipeline:
                 'ingest_news',
                 'ingest_arxiv',
             ]
-            logger.info(f"Direct mode enabled - skipping stages: {', '.join(completed_stages)}")
+            logger.info(f"Direct mode enabled - skipping ingestion stages: {', '.join(completed_stages)}")
+            logger.info("Processing stages (load_warehouse, compute_features, compute_indices, detect_bubble) will always run to add new data points")
         else:
             # Get already completed stages if running incrementally
             completed_stages = self._get_completed_stages() if incremental else []
