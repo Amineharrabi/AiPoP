@@ -61,6 +61,7 @@ def get_news_articles(query, from_date, to_date):
     try:
         response = requests.get(url, params=params)
         response.raise_for_status()
+        time.sleep(1)
         data = response.json()
         
         if data.get('status') != 'ok':

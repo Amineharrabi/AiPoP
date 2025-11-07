@@ -166,14 +166,16 @@ def compute_reality_index(conn: duckdb.DuckDBPyConnection) -> None:
 def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
     """
     Compute enhanced bubble detection metrics combining multi-source Hype and Reality indices
+    Ensures exactly ONE point per date for clean visualization
     """
     print("Computing enhanced bubble metrics with multi-source integration...")
     
-    # Create table with timestamp for hourly tracking
+    # Drop and recreate table to ensure clean structure with proper primary key
+    conn.execute("DROP TABLE IF EXISTS bubble_metrics;")
     conn.execute("""
-    CREATE TABLE IF NOT EXISTS bubble_metrics (
+    CREATE TABLE bubble_metrics (
+        date DATE PRIMARY KEY,
         time_id INTEGER,
-        date DATE,
         computed_at TIMESTAMP,
         hype_index DOUBLE,
         reality_index DOUBLE,
@@ -190,65 +192,16 @@ def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
         hype_score DOUBLE,
         reality_score DOUBLE,
         bubble_risk_score DOUBLE
-    )
+    );
     """)
     
-    # For backward compatibility: if table exists without computed_at, we need to handle it
-    # Check if computed_at column exists
-    try:
-        columns = conn.execute("DESCRIBE bubble_metrics").fetchdf()
-        has_computed_at = 'computed_at' in columns['column_name'].values
-        
-        if not has_computed_at:
-            # Table exists but doesn't have computed_at column - add it
-            try:
-                conn.execute("ALTER TABLE bubble_metrics ADD COLUMN computed_at TIMESTAMP")
-                # Set computed_at for existing rows to date at midnight
-                conn.execute("UPDATE bubble_metrics SET computed_at = CAST(date AS TIMESTAMP) WHERE computed_at IS NULL")
-                print("Added computed_at column to bubble_metrics for hourly tracking")
-            except Exception as e:
-                print(f"Warning: Could not add computed_at column: {e}")
-    except Exception as e:
-        # Table might not exist yet, which is fine - it will be created with computed_at
-        pass
-    
-    # Reset the table to ensure clean state
-    conn.execute("DROP TABLE IF EXISTS bubble_metrics")
-    
-    # Create fresh table with correct timestamp type
+    # Compute and insert/update metrics ensuring one point per date
     conn.execute("""
-    CREATE TABLE bubble_metrics (
-        time_id INTEGER,
-        date DATE,
-        computed_at TIMESTAMP WITHOUT TIME ZONE,
-        hype_index DOUBLE,
-        reality_index DOUBLE,
-        hype_7d_avg DOUBLE,
-        reality_7d_avg DOUBLE,
-        hype_30d_avg DOUBLE,
-        reality_30d_avg DOUBLE,
-        hype_reality_gap DOUBLE,
-        hype_reality_ratio DOUBLE,
-        bubble_momentum DOUBLE,
-        sentiment_bubble_momentum DOUBLE,
-        github_trending_bubble_momentum DOUBLE,
-        trending_reality_divergence DOUBLE,
-        hype_score DOUBLE,
-        reality_score DOUBLE,
-        bubble_risk_score DOUBLE
-    )
-    """)
-    
-    # Insert the data with explicit timestamp handling
-    conn.execute("""
-    INSERT INTO bubble_metrics
+    CREATE OR REPLACE TEMP TABLE temp_bubble_metrics AS
     WITH 
-    current_ts AS (
-        SELECT CAST(CURRENT_TIMESTAMP AS TIMESTAMP WITHOUT TIME ZONE) as now
-    ),
-    -- Join indices and compute rolling averages with multi-source components
-    rolling_metrics AS (
-        SELECT 
+    -- Get the latest time_id for each date to ensure one point per day
+    daily_data AS (
+        SELECT DISTINCT ON (h.date)
             h.time_id,
             h.date,
             h.hype_index,
@@ -257,73 +210,70 @@ def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
             h.trending_component,
             h.innovation_component,
             r.reality_index,
+            r.reality_strength_component,
             r.github_delta_component,
             r.hf_downloads_component,
-            r.cumulative_impact_component,
+            r.cumulative_impact_component
+        FROM hype_index h
+        JOIN reality_index r ON h.date = r.date
+        ORDER BY h.date, h.time_id DESC
+    ),
+    -- Compute rolling averages with one point per day
+    rolling_metrics AS (
+        SELECT 
+            time_id,
+            date,
+            hype_index,
+            sentiment_momentum_component,
+            github_trending_component,
+            trending_component,
+            innovation_component,
+            reality_index,
+            reality_strength_component,
+            github_delta_component,
+            hf_downloads_component,
+            cumulative_impact_component,
             -- 7-day rolling averages
-            AVG(h.hype_index) OVER (
-                ORDER BY h.date 
+            AVG(hype_index) OVER (
+                ORDER BY date 
                 ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
             ) as hype_7d_avg,
-            AVG(r.reality_index) OVER (
-                ORDER BY h.date 
+            AVG(reality_index) OVER (
+                ORDER BY date 
                 ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
             ) as reality_7d_avg,
             -- 30-day rolling averages
-            AVG(h.hype_index) OVER (
-                ORDER BY h.date 
+            AVG(hype_index) OVER (
+                ORDER BY date 
                 ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
             ) as hype_30d_avg,
-            AVG(r.reality_index) OVER (
-                ORDER BY h.date 
+            AVG(reality_index) OVER (
+                ORDER BY date 
                 ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
             ) as reality_30d_avg,
             -- Component rolling averages
-            AVG(h.sentiment_momentum_component) OVER (
-                ORDER BY h.date 
+            AVG(sentiment_momentum_component) OVER (
+                ORDER BY date 
                 ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
             ) as sentiment_7d_avg,
-            AVG(h.github_trending_component) OVER (
-                ORDER BY h.date 
+            AVG(github_trending_component) OVER (
+                ORDER BY date 
                 ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
             ) as github_trend_7d_avg,
-            AVG(r.github_delta_component) OVER (
-                ORDER BY h.date 
+            AVG(reality_strength_component) OVER (
+                ORDER BY date 
+                ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+            ) as reality_strength_7d_avg,
+            AVG(github_delta_component) OVER (
+                ORDER BY date 
                 ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
             ) as reality_github_7d_avg
-        FROM hype_index h
-        JOIN reality_index r ON h.time_id = r.time_id
-    ),
-    latest_metrics AS (
-        -- Only get the latest date's metrics to insert as a new point
-        SELECT *
-        FROM rolling_metrics
-        WHERE date = (SELECT MAX(date) FROM rolling_metrics)
-    ),
-    -- Check if we should insert (avoid duplicates within the same minute)
-    -- This allows multiple updates per day while preventing exact duplicates
-    should_insert AS (
-        SELECT 
-            lm.*,
-            CASE 
-                -- If no existing data, always insert
-                WHEN NOT EXISTS (SELECT 1 FROM bubble_metrics) THEN TRUE
-                -- If latest existing point is older than 1 minute, insert new point
-                WHEN COALESCE((SELECT MAX(computed_at) FROM bubble_metrics), 
-                            CAST('1970-01-01' AS TIMESTAMP WITHOUT TIME ZONE)) < 
-                     (SELECT now FROM current_ts) - INTERVAL '1 minute' THEN TRUE
-                -- If latest existing point is for a different date, insert new point
-                WHEN COALESCE((SELECT MAX(date) FROM bubble_metrics), 
-                            CAST('1970-01-01' AS DATE)) < lm.date THEN TRUE
-                -- Otherwise, don't insert (avoid duplicates within same minute)
-                ELSE FALSE
-            END as should_insert_flag
-        FROM latest_metrics lm
+        FROM daily_data
     )
     SELECT 
+        date,  -- Date is now the primary key
         time_id,
-        date,
-        (SELECT now FROM current_ts) as computed_at,
+        CURRENT_TIMESTAMP as computed_at,
         hype_index,
         reality_index,
         hype_7d_avg,
@@ -339,41 +289,38 @@ def compute_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
         -- Bubble indicators with multi-source components
         (hype_7d_avg - reality_7d_avg) - (hype_30d_avg - reality_30d_avg) as bubble_momentum,
         -- Component-specific momentum gaps
-        (sentiment_7d_avg - reality_7d_avg) as sentiment_bubble_momentum,
+        (sentiment_7d_avg - reality_strength_7d_avg) as sentiment_bubble_momentum,
         (github_trend_7d_avg - reality_github_7d_avg) as github_trending_bubble_momentum,
-        -- NEW: Trending divergence indicator (use columns from rolling_metrics)
+        -- Trending divergence indicator
         (trending_component - cumulative_impact_component) as trending_reality_divergence,
-        -- Normalized scores (0-100 scale) - normalize based on all historical data
-        -- Use COALESCE to handle case where bubble_metrics is empty (first run)
+        -- Normalized scores (0-100 scale)
         CASE 
-            WHEN COALESCE((SELECT MAX(hype_index) FROM bubble_metrics), hype_index) = 
-                 COALESCE((SELECT MIN(hype_index) FROM bubble_metrics), hype_index) THEN 50.0
-            ELSE 100 * (hype_index - COALESCE((SELECT MIN(hype_index) FROM bubble_metrics), hype_index)) / 
-                NULLIF(
-                    COALESCE((SELECT MAX(hype_index) FROM bubble_metrics), hype_index) - 
-                    COALESCE((SELECT MIN(hype_index) FROM bubble_metrics), hype_index), 
-                    0
-                )
+            WHEN MAX(hype_index) OVER () = MIN(hype_index) OVER () THEN 50.0
+            ELSE 100 * (hype_index - MIN(hype_index) OVER ()) / 
+                NULLIF(MAX(hype_index) OVER () - MIN(hype_index) OVER (), 0)
         END as hype_score,
         CASE 
-            WHEN COALESCE((SELECT MAX(reality_index) FROM bubble_metrics), reality_index) = 
-                 COALESCE((SELECT MIN(reality_index) FROM bubble_metrics), reality_index) THEN 50.0
-            ELSE 100 * (reality_index - COALESCE((SELECT MIN(reality_index) FROM bubble_metrics), reality_index)) / 
-                NULLIF(
-                    COALESCE((SELECT MAX(reality_index) FROM bubble_metrics), reality_index) - 
-                    COALESCE((SELECT MIN(reality_index) FROM bubble_metrics), reality_index), 
-                    0
-                )
+            WHEN MAX(reality_index) OVER () = MIN(reality_index) OVER () THEN 50.0
+            ELSE 100 * (reality_index - MIN(reality_index) OVER ()) / 
+                NULLIF(MAX(reality_index) OVER () - MIN(reality_index) OVER (), 0)
         END as reality_score,
-        -- NEW: Composite bubble risk score
+        -- Composite bubble risk score
         (
-            ABS((hype_index - reality_index)) * 0.4 +
+            ABS(hype_index - reality_index) * 0.4 +
             ABS((hype_7d_avg - reality_7d_avg) - (hype_30d_avg - reality_30d_avg)) * 0.3 +
-            ABS((trending_component - cumulative_impact_component)) * 0.3
+            ABS(trending_component - cumulative_impact_component) * 0.3
         ) * 100 as bubble_risk_score
-    FROM should_insert
-    WHERE should_insert_flag = TRUE;
+    FROM rolling_metrics
+    ORDER BY date;
     """)
+    
+    # Use INSERT OR REPLACE to ensure only one row per date
+    conn.execute("""
+    INSERT OR REPLACE INTO bubble_metrics
+    SELECT * FROM temp_bubble_metrics;
+    """)
+    
+    print(f"Bubble metrics computed successfully")
 
 def compute_entity_bubble_metrics(conn: duckdb.DuckDBPyConnection) -> None:
     """

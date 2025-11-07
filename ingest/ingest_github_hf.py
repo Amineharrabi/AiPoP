@@ -32,7 +32,10 @@ os.makedirs(RAW_DIR, exist_ok=True)
 os.makedirs(STAGING_DIR, exist_ok=True)
 
 # Import DataManager for delta calculations
-sys.path.append(os.path.join(BASE_DIR, 'setup'))
+# Ensure project root is on sys.path so 'setup' package can be imported when running this
+# script directly (e.g., python ingest_github_hf.py)
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
 from setup.data_manager import DataManager
 
 GITHUB_REPOS = [
@@ -517,6 +520,21 @@ def main():
                 lambda x: 'hot' if x > 0.1 else 'stable' if x > -0.1 else 'declining'
             )
             staging_file = os.path.join(STAGING_DIR, 'github_clean.parquet')
+            
+            # Load existing data if available and append new data
+            if os.path.exists(staging_file):
+                existing_df = pd.read_parquet(staging_file)
+
+                # Normalize timestamps to UTC for safe comparison
+                existing_df['collected_at'] = pd.to_datetime(existing_df['collected_at'], utc=True)
+                df_github['collected_at'] = pd.to_datetime(df_github['collected_at'], utc=True)
+
+                # Keep last 30 days of data using a timezone-aware cutoff
+                cutoff_date = pd.Timestamp.now(tz='UTC') - pd.Timedelta(days=30)
+                existing_df = existing_df[existing_df['collected_at'] >= cutoff_date]
+
+                df_github = pd.concat([existing_df, df_github]).drop_duplicates(subset=['name', 'collected_at'], keep='last')
+            
             df_github.to_parquet(staging_file, index=False)
             print(f"\nProcessed {len(github_data)} GitHub repositories")
             print(f"Trending breakdown: {df_github['trending_category'].value_counts().to_dict()}")
@@ -529,6 +547,21 @@ def main():
                 lambda x: 'hot' if x > 0.05 else 'stable' if x > -0.05 else 'declining'
             )
             staging_file = os.path.join(STAGING_DIR, 'huggingface_clean.parquet')
+            
+            # Load existing data if available and append new data
+            if os.path.exists(staging_file):
+                existing_df = pd.read_parquet(staging_file)
+
+                # Normalize timestamps to UTC for safe comparison
+                existing_df['collected_at'] = pd.to_datetime(existing_df['collected_at'], utc=True)
+                df_hf['collected_at'] = pd.to_datetime(df_hf['collected_at'], utc=True)
+
+                # Keep last 30 days of data using a timezone-aware cutoff
+                cutoff_date = pd.Timestamp.now(tz='UTC') - pd.Timedelta(days=30)
+                existing_df = existing_df[existing_df['collected_at'] >= cutoff_date]
+
+                df_hf = pd.concat([existing_df, df_hf]).drop_duplicates(subset=['model_id', 'collected_at'], keep='last')
+            
             df_hf.to_parquet(staging_file, index=False)
             print(f"Processed {len(hf_data)} HuggingFace models")
             print(f"Trending breakdown: {df_hf['trending_category'].value_counts().to_dict()}")

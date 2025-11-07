@@ -59,12 +59,15 @@ class StockDataIngester:
                 start_time -= timedelta(hours=1)
                 days_since_update = (now - start_time).days
             else:
-                # If no previous data, start from 730 days ago (1h data limit)
-                start_time = now - timedelta(days=730)
-                days_since_update = 730
+                # If no previous data, start from 30 days ago for initial data
+                start_time = now - timedelta(days=30)
+                days_since_update = 30
 
+            # For initial load, always use daily data to ensure we get all trading days
+            if not last_update:
+                interval = '1d'
             # Use 1-hour data if within 730 days, otherwise use daily
-            if days_since_update <= 730:
+            elif days_since_update <= 730:
                 interval = '1h'
                 # Ensure we don't exceed 730 days
                 max_start = now - timedelta(days=730)

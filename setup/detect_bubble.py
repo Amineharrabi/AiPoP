@@ -368,33 +368,27 @@ class BubbleDetector:
             alerts_df['pattern_score'] = alerts_df['pattern_score'].fillna(0.0)
             alerts_df['confidence'] = alerts_df['confidence'].fillna(0.0)
             
-            # Deduplicate: remove existing alerts for same (timestamp, entity_id, alert_level) before inserting
+            # Insert only new alerts without duplicates
             if len(alerts_df) > 0:
                 conn.register('alerts_df', alerts_df)
-                # Delete existing alerts that match the new ones
-                conn.execute("""
-                    DELETE FROM bubble_alerts
-                    WHERE EXISTS (
-                        SELECT 1 FROM alerts_df
-                        WHERE alerts_df.timestamp = bubble_alerts.timestamp
-                        AND alerts_df.entity_id = bubble_alerts.entity_id
-                        AND alerts_df.alert_level = bubble_alerts.alert_level
-                    )
-                """)
-                
-                # Insert new alerts
                 conn.execute("""
                     INSERT INTO bubble_alerts 
-                    SELECT 
-                        timestamp,
-                        entity_id,
-                        alert_level,
-                        divergence_score,
-                        acceleration_score,
-                        pattern_score,
-                        confidence,
-                        contributing_factors
-                    FROM alerts_df
+                    SELECT DISTINCT
+                        a.timestamp,
+                        a.entity_id,
+                        a.alert_level,
+                        a.divergence_score,
+                        a.acceleration_score,
+                        a.pattern_score,
+                        a.confidence,
+                        a.contributing_factors
+                    FROM alerts_df a
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM bubble_alerts b
+                        WHERE b.timestamp = a.timestamp
+                        AND b.entity_id = a.entity_id
+                        AND b.alert_level = a.alert_level
+                    )
                 """)
             logger.info(f"Saved {len(alerts)} alerts to warehouse")
             
@@ -404,7 +398,7 @@ class BubbleDetector:
         finally:
             conn.close()
 
-    def detect_bubbles(self, lookback_days: int = None):
+    def detect_bubbles(self, lookback_days: int = None, per_day: bool = False):
         """
         Main function to detect bubbles across all entities
         
@@ -414,12 +408,116 @@ class BubbleDetector:
         try:
             logger.info("Starting bubble detection...")
             conn = duckdb.connect(self.warehouse_path)
-            
+
+            if per_day:
+                # Run detection as-of each date available in bubble_metrics
+                dates_df = conn.execute("SELECT DISTINCT date FROM bubble_metrics ORDER BY date").fetchdf()
+                all_alerts = []
+                for d in dates_df['date']:
+                    logger.info(f"Running detection for date: {d}")
+                    # Build date-limited filter (use data up to and including d)
+                    date_str = pd.to_datetime(d).strftime('%Y-%m-%d')
+                    date_filter = f"AND eb.date <= DATE '{date_str}'"
+
+                    # First, identify entities with sufficient data up to date d
+                    sufficient_entities_query = f"""
+                        SELECT entity_id, COUNT(*) as cnt
+                        FROM entity_bubble_metrics eb
+                        WHERE eb.date <= DATE '{date_str}'
+                        GROUP BY entity_id
+                        HAVING COUNT(*) >= {self.min_samples}
+                    """
+                    sufficient_entities = conn.execute(sufficient_entities_query).fetchdf()
+
+                    if len(sufficient_entities) == 0:
+                        logger.debug(f"No entities with >= {self.min_samples} samples up to {date_str}")
+                        continue
+
+                    entity_list = ', '.join(map(str, sufficient_entities['entity_id'].tolist()))
+                    query = f"""
+                        WITH recent_entity_data AS (
+                            SELECT
+                                eb.time_id,
+                                eb.date,
+                                eb.entity_id,
+                                eb.entity_name,
+                                eb.multi_source_hype_intensity as hype_index,
+                                eb.reality_strength_score as reality_index,
+                                eb.hype_reality_gap,
+                                eb.bubble_momentum
+                            FROM entity_bubble_metrics eb
+                            WHERE eb.entity_id IN ({entity_list})
+                            AND eb.date <= DATE '{date_str}'
+                        ),
+                        recent_global_data AS (
+                            SELECT
+                                b.time_id,
+                                b.date,
+                                NULL::INTEGER as entity_id,
+                                NULL::VARCHAR as entity_name,
+                                b.hype_index,
+                                b.reality_index,
+                                b.hype_reality_gap,
+                                b.bubble_momentum
+                            FROM bubble_metrics b
+                            WHERE b.date <= DATE '{date_str}'
+                        ),
+                        recent_data AS (
+                            SELECT * FROM recent_entity_data
+                            UNION ALL
+                            SELECT * FROM recent_global_data
+                        )
+                        SELECT * FROM recent_data
+                        ORDER BY date
+                    """
+
+                    df = conn.execute(query).fetchdf()
+
+                    if df.empty:
+                        logger.debug(f"No data for date {date_str} after filtering")
+                        continue
+
+                    # Process entities for this date
+                    entity_ids = df['entity_id'].dropna().unique()
+                    for entity_id in entity_ids:
+                        entity_data = df[df['entity_id'] == entity_id].copy()
+                        if len(entity_data) < self.min_samples:
+                            continue
+
+                        entity_data = entity_data.set_index('date')
+                        entity_data.index = pd.to_datetime(entity_data.index)
+
+                        numeric_columns = ['hype_index', 'reality_index', 'hype_reality_gap']
+                        for col in numeric_columns:
+                            entity_data[col] = pd.to_numeric(entity_data[col], errors='coerce').fillna(0)
+
+                        hype_series = pd.Series(entity_data['hype_index'], index=entity_data.index)
+                        reality_series = pd.Series(entity_data['reality_index'], index=entity_data.index)
+
+                        divergence = self.compute_divergence(hype_series, reality_series)
+                        acceleration = self.compute_acceleration(divergence)
+                        pattern_score = self.compute_pattern_match(entity_data['hype_reality_gap'])
+
+                        entity_alerts = self.generate_alerts(entity_id, divergence, acceleration, pattern_score)
+
+                        # Override alert timestamps to the current date (as-of detection)
+                        for a in entity_alerts:
+                            a.timestamp = pd.to_datetime(d)
+
+                        all_alerts.extend(entity_alerts)
+
+                # Save alerts after iterating all dates
+                if all_alerts:
+                    self.save_alerts(all_alerts)
+
+                return all_alerts
+
+            # Non-per-day (original behavior)
             # Build date filter - use all data if lookback_days is None
             date_filter = ""
             if lookback_days is not None:
                 date_filter = f"AND eb.date >= CURRENT_DATE - INTERVAL '{lookback_days} days'"
-            
+
             # First, identify entities with sufficient data
             where_clause = date_filter.replace("AND", "WHERE") if date_filter else ""
             sufficient_entities_query = f"""
@@ -430,13 +528,13 @@ class BubbleDetector:
                 HAVING COUNT(*) >= {self.min_samples}
             """
             sufficient_entities = conn.execute(sufficient_entities_query).fetchdf()
-            
+
             if len(sufficient_entities) == 0:
                 logger.warning(f"No entities have sufficient data (>= {self.min_samples} samples)")
                 return []
-            
+
             logger.info(f"Found {len(sufficient_entities)} entities with sufficient data (>= {self.min_samples} samples)")
-            
+
             # Get recent data for entities with sufficient data
             entity_list = ', '.join(map(str, sufficient_entities['entity_id'].tolist()))
             query = f"""
@@ -477,46 +575,46 @@ class BubbleDetector:
             """
 
             df = conn.execute(query).fetchdf()
-            
+
             if df.empty:
                 logger.warning("No data found for bubble detection")
                 return []
-            
+
             all_alerts = []
             # Filter out NULL entity_ids and process each entity
             # Note: We already filtered for sufficient entities, so all should have enough data
             entity_ids = df['entity_id'].dropna().unique()
-            
+
             for entity_id in entity_ids:
                 entity_data = df[df['entity_id'] == entity_id].copy()
-                
+
                 # Double-check (shouldn't happen since we pre-filtered, but safety check)
                 if len(entity_data) < self.min_samples:
                     logger.debug(f"Entity {entity_id} had insufficient data after filtering (has {len(entity_data)} rows, needs {self.min_samples})")
                     continue
-                
+
                 # Set date as index for proper timestamp handling
                 entity_data = entity_data.set_index('date')
                 entity_data.index = pd.to_datetime(entity_data.index)
-                
+
                 # Ensure numeric columns are properly typed and handle NaN values
                 numeric_columns = ['hype_index', 'reality_index', 'hype_reality_gap']
                 for col in numeric_columns:
                     entity_data[col] = pd.to_numeric(entity_data[col], errors='coerce').fillna(0)
-                
+
                 # Convert to pandas Series with proper index
                 hype_series = pd.Series(entity_data['hype_index'], index=entity_data.index)
                 reality_series = pd.Series(entity_data['reality_index'], index=entity_data.index)
-                
+
                 # Compute metrics
                 divergence = self.compute_divergence(hype_series, reality_series)
-                
+
                 acceleration = self.compute_acceleration(divergence)
-                
+
                 pattern_score = self.compute_pattern_match(
                     entity_data['hype_reality_gap']
                 )
-                
+
                 # Generate alerts
                 entity_alerts = self.generate_alerts(
                     entity_id,
@@ -524,13 +622,13 @@ class BubbleDetector:
                     acceleration,
                     pattern_score
                 )
-                
+
                 all_alerts.extend(entity_alerts)
-            
+
             # Save alerts
             if all_alerts:
                 self.save_alerts(all_alerts)
-                
+
             return all_alerts
             
         except Exception as e:

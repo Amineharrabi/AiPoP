@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import arxiv
-from datetime import datetime
+from datetime import datetime, timedelta
 from tqdm import tqdm
 import time
 
@@ -49,8 +49,10 @@ def fetch_papers(search_query, max_results=50):
 
         results = []
         for paper in tqdm(search.results(), desc=f"Fetching {search_query}", leave=False):
-            # Only include papers from 2020 onwards
-            if paper.published.year < 2023:
+            # Include papers from the last 30 days (timezone-aware comparison)
+            thirty_days_ago = datetime.now().astimezone() - timedelta(days=30)
+            paper_published = paper.published.astimezone() if paper.published.tzinfo else paper.published.replace(tzinfo=thirty_days_ago.tzinfo)
+            if paper_published < thirty_days_ago:
                 continue
 
             # Extract authors
@@ -202,6 +204,11 @@ def main():
         # Save cleaned data to staging with enhanced metrics
         df['innovation_intensity'] = df['innovation_score'] * df['technical_complexity']  # Combined intensity
         df['impact_score'] = df['innovation_score'] * 0.6 + df['research_impact_score'] * 0.4  # Weighted impact
+        
+        # Ensure timezone awareness for all datetime columns
+        df['published'] = df['published'].dt.tz_localize('UTC') if df['published'].dt.tz is None else df['published'].dt.tz_convert('UTC')
+        df['updated'] = df['updated'].dt.tz_localize('UTC') if df['updated'].dt.tz is None else df['updated'].dt.tz_convert('UTC')
+        df['collected_at'] = datetime.now().astimezone().replace(microsecond=0)
         
         staging_file = os.path.join(STAGING_DIR, 'arxiv_clean.parquet')
         df.to_parquet(staging_file, index=False)
