@@ -1,14 +1,14 @@
 import importlib
 
 
-def test_import_core_scripts():
+def test_import_core_setup():
     modules = [
-        'scripts.setup_duckdb',
-        'scripts.load_warehouse',
-        'scripts.compute_features',
-        'scripts.compute_indices',
-        'scripts.detect_bubble',
-        'scripts.data_manager'
+        'setup.setup_duckdb',
+        'setup.load_warehouse',
+        'setup.compute_features',
+        'setup.compute_indices',
+        'setup.detect_bubble',
+        'setup.data_manager'
     ]
 
     for mod in modules:
