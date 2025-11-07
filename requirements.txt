@@ -33,8 +33,7 @@ sec-api==1.0.32
 python-dotenv==1.0.1
 vaderSentiment==3.3.2
 tqdm==4.66.5
-pyarrow==17.0.0           # ✅ compatible with pandas 2.2.x and Py3.13
-
+pyarrow==18.0.0.dev152+g7b3c2d9c3 --pre --extra-index-url https://pypi.anaconda.org/arrow-nightlies/simple
 # Core analytics and visualization
 plotly==5.24.1
 streamlit==1.42.0        # ✅ confirmed Py3.13 support
