@@ -79,12 +79,14 @@ class StockDataIngester:
                 logger.info(f"Using daily interval for {ticker} (last update was {days_since_update} days ago)")
             
             # Download data
+            logger.info(f"Attempting to fetch {ticker} data from {start_time} to {now} with interval {interval}")
             stock = yf.Ticker(ticker)
             df = stock.history(
                 start=start_time,
                 end=now,
                 interval=interval
             )
+            logger.info(f"Raw API response for {ticker}: {df.shape[0]} rows")
 
             # If hourly data is empty (market closed), try daily interval for last few days
             used_daily_fallback = False

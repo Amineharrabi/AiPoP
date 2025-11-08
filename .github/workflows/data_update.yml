@@ -131,8 +131,7 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-          git remote set-url origin https://x-access-token:$$ {{ secrets.GH_PAT }}@github.com/ $${{ github.repository }}.git
-
+          git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git  
           # Stage database file
           git add data/warehouse/ai_bubble.duckdb
 
@@ -187,23 +186,23 @@ jobs:
           EOF
                     fi
                 
-                - name: Create issue on failure
-                  if: failure()
-                  uses: actions/github-script@v6
-                  with:
-                    script: |
-                      const title = '⚠️ Data Update Failed';
-                      const body = `The incremental data update workflow failed at ${new Date().toISOString()}.
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@v6
+        with:
+          script: |
+                const title = '⚠️ Data Update Failed';
+                const body = `The incremental data update workflow failed at ${new Date().toISOString()}.
                       
-                      **Workflow Run:** [View Details](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})
+                **Workflow Run:** [View Details](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})
                       
-                      Please check the logs and investigate the issue.
+                Please check the logs and investigate the issue.
                       
-                      Common issues:
-                      - API rate limits
-                      - Network connectivity
-                      - Database corruption
-                      - Missing dependencies
+                Common issues:
+                - API rate limits
+                - Network connectivity
+                - Database corruption
+                - Missing dependencies
                       `;
                       
                       await github.rest.issues.create({
