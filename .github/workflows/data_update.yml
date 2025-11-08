@@ -9,6 +9,9 @@ jobs:
   update-data:
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: write # Needed for pushing to the repository
+      issues: write # Needed for creating issues on failure
 
     steps:
       - uses: actions/checkout@v3
@@ -127,11 +130,15 @@ jobs:
 
       - name: Commit and push database
         if: steps.check-updates.outputs.changed != '0'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-          git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git  
+          # Set the remote URL using the built-in GITHUB_TOKEN
+          git remote set-url origin "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+
           # Stage database file
           git add data/warehouse/ai_bubble.duckdb
 
@@ -144,11 +151,11 @@ jobs:
                      -m "Updated database with latest data" \
                      -m "Size: ${{ steps.check-updates.outputs.size }} bytes" || exit 0
 
-          # Push changes
-          git push || {
+          # Push changes with error handling
+          git push origin main || {
             echo "Push failed, trying to pull and rebase..."
             git pull --rebase origin main
-            git push
+            git push origin main
           }
 
       - name: Generate summary
@@ -185,30 +192,30 @@ jobs:
               print(f"- **Error getting stats:** {e}")
           EOF
                     fi
-                
+
       - name: Create issue on failure
         if: failure()
         uses: actions/github-script@v6
         with:
           script: |
-                const title = '⚠️ Data Update Failed';
-                const body = `The incremental data update workflow failed at ${new Date().toISOString()}.
-                      
-                **Workflow Run:** [View Details](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})
-                      
-                Please check the logs and investigate the issue.
-                      
-                Common issues:
-                - API rate limits
-                - Network connectivity
-                - Database corruption
-                - Missing dependencies
-                      `;
-                      
-                      await github.rest.issues.create({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        title,
-                        body,
-                        labels: ['automated', 'data-update-failed', 'bug']
-                      });
+            const title = '⚠️ Data Update Failed';
+            const body = `The incremental data update workflow failed at ${new Date().toISOString()}.
+                  
+            **Workflow Run:** [View Details](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})
+                  
+            Please check the logs and investigate the issue.
+                  
+            Common issues:
+            - API rate limits
+            - Network connectivity
+            - Database corruption
+            - Missing dependencies
+                  `;
+                  
+                  await github.rest.issues.create({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    title,
+                    body,
+                    labels: ['automated', 'data-update-failed', 'bug']
+                  });
