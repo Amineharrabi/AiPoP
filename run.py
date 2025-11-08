@@ -166,11 +166,6 @@ def main():
     st.sidebar.header("Controls")
     
     # Add pipeline control if available
-    try:
-        if st.sidebar.button('🔄 Run Pipeline'):
-            run_pipeline()
-    except:
-        pass
     
     if not has_data:
         st.sidebar.warning("""
