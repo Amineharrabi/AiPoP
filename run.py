@@ -116,7 +116,7 @@ def show_alerts(conn):
         """).fetchdf()
         
         if len(df) > 0:
-            st.subheader('⚠️ Recent Bubble Alerts')
+            st.subheader('Recent Bubble Alerts')
             
             # Deduplicate
             df = df.drop_duplicates(subset=['entity_name', 'timestamp'], keep='first')
@@ -152,12 +152,12 @@ def show_alerts(conn):
 
 def main():
     st.set_page_config(
-        page_title='AiPoP — Hype vs Reality',
+        page_title='AiPoP. Hype vs Reality',
         page_icon='🚀',
         layout='wide'
     )
     
-    st.title('🚀 AiPoP — Hype vs Reality')
+    st.title(' AiPoP — Hype vs Reality')
     
     # Check if data is available
     has_data = check_data_status()
@@ -169,7 +169,7 @@ def main():
     
     if not has_data:
         st.sidebar.warning("""
-        ⚠️ No data available. 
+         No data available. 
         
         Run order:
         1. `scripts/setup_duckdb.py`
@@ -340,7 +340,7 @@ def main():
                     st.dataframe(filtered_df, use_container_width=True)
             
             # Show alerts
-            st.header("⚠️ Recent Bubble Alerts")
+            st.header("Recent Bubble Alerts")
             show_alerts(conn)
             
             conn.close()
@@ -349,7 +349,7 @@ def main():
             st.error(f'Error loading data: {str(e)}')
             logger.error(f"Error in main: {str(e)}", exc_info=True)
     else:
-        st.header('📊 Global Indices')
+        st.header('Global Indices')
         st.warning('No index data available. Please run the data pipeline first.')
         
     # Footer
