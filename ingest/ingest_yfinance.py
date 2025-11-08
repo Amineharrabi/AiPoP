@@ -53,30 +53,10 @@ class StockDataIngester:
             # For incremental updates, prefer 1h interval for good granularity with longer history
             # If we need more than 730 days, use 1d interval instead
             
-            if last_update:
-                start_time = datetime.fromisoformat(last_update)
-                # Add small overlap to ensure no data gaps
-                start_time -= timedelta(hours=1)
-                days_since_update = (now - start_time).days
-            else:
-                # If no previous data, start from 30 days ago for initial data
-                start_time = now - timedelta(days=30)
-                days_since_update = 30
-
-            # For initial load, always use daily data to ensure we get all trading days
-            if not last_update:
-                interval = '1d'
-            # Use 1-hour data if within 730 days, otherwise use daily
-            elif days_since_update <= 730:
-                interval = '1h'
-                # Ensure we don't exceed 730 days
-                max_start = now - timedelta(days=730)
-                if start_time < max_start:
-                    start_time = max_start
-            else:
-                # For older data, use daily interval (no limit)
-                interval = '1d'
-                logger.info(f"Using daily interval for {ticker} (last update was {days_since_update} days ago)")
+            # Get data for the last 2 trading days to ensure we get the most recent data
+            start_time = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=2)
+            interval = '1d'
+            logger.info(f"Fetching daily data for {ticker}")
             
             # Download data
             logger.info(f"Attempting to fetch {ticker} data from {start_time} to {now} with interval {interval}")
@@ -88,20 +68,10 @@ class StockDataIngester:
             )
             logger.info(f"Raw API response for {ticker}: {df.shape[0]} rows")
 
-            # If hourly data is empty (market closed), try daily interval for last few days
-            used_daily_fallback = False
-            if df.empty and interval == '1h':
-                logger.info(f"No hourly data for {ticker}, trying daily interval for last 5 days")
-                # Try daily data for last 5 days to get latest available
-                daily_start = now - timedelta(days=5)
-                df = stock.history(
-                    start=daily_start,
-                    end=now,
-                    interval='1d'
-                )
-                if not df.empty:
-                    used_daily_fallback = True
-                    logger.info(f"Got daily data for {ticker} (latest: {df.index.max()})")
+            # Check if we got any data
+            if df.empty:
+                logger.info(f"No data available for {ticker} for the requested period")
+                return None
 
             if df.empty:
                 logger.info(f"No new data for {ticker}")
@@ -110,36 +80,23 @@ class StockDataIngester:
             # Convert index to UTC
             df.index = df.index.tz_convert(pytz.UTC)
             
-            # Filter to only data after last_update
-            # If we used daily fallback (market closed), we still want to get the latest day
-            # so we'll be more lenient with the filtering
+            # We want the most recent trading day's data
             if last_update:
                 last_update_dt = datetime.fromisoformat(last_update)
                 
-                if used_daily_fallback:
-                    # For daily fallback (market closed), we want to include the latest available trading day
-                    # Strategy: 
-                    # 1. Get the latest date in the fetched data (most recent trading day available)
-                    # 2. Include all data from that latest date (to ensure we get the full day's data)
-                    # 3. Also include any data from last_update date or newer (to catch any new days)
-                    last_update_date = last_update_dt.date() if hasattr(last_update_dt, 'date') else last_update_dt.date()
+                # Get the most recent data point's date
+                if not df.empty:
+                    latest_date = df.index.max()
                     
-                    # Get the latest date in the fetched data
-                    latest_fetched_date = df.index.max().date() if hasattr(df.index.max(), 'date') else pd.Timestamp(df.index.max()).date()
+                    # Keep only the most recent trading day's data
+                    df = df[df.index.date == latest_date.date()]
                     
-                    # Include data if:
-                    # 1. It's from the latest available date (always include latest trading day)
-                    # 2. OR it's from last_update date or newer (to catch any new days since last update)
-                    mask = []
-                    for idx in df.index:
-                        idx_date = pd.Timestamp(idx).date()
-                        # Always include latest available date, or any date >= last_update
-                        mask.append(idx_date == latest_fetched_date or idx_date >= last_update_date)
+                    # Only keep data if it's newer than our last update
+                    if latest_date <= last_update_dt:
+                        logger.info(f"No new data for {ticker} after filtering (latest: {latest_date}, last update: {last_update_dt})")
+                        return None
                     
-                    df = df[mask]
-                else:
-                    # For hourly data, only get data after last_update
-                    df = df[df.index > last_update_dt]
+                    logger.info(f"Found new data for {ticker} on {latest_date.date()}")
             
             if df.empty:
                 logger.info(f"No new data for {ticker} after filtering")
@@ -347,35 +304,27 @@ def update_stock_data():
                     values=['Close', 'High', 'Low', 'Open', 'Volume'],
                     aggfunc='last'  # Take last value if duplicates
                 )
-                # Flatten column names to match expected format
+                # Flatten column names
                 new_wide.columns = [f"{col[0]}_{col[1]}" if col[1] else col[0] for col in new_wide.columns]
                 new_wide = new_wide.reset_index()
-                new_wide = new_wide.rename(columns={'Date': ('Date', '')})
+                # Ensure Date column is properly named and formatted
+                new_wide = new_wide.rename(columns={'Date': 'Date'})
                 
                 # Merge with existing data if available
                 if existing_df is not None:
-                    # Ensure both dataframes have the same date column name
-                    existing_date_col = ('Date', '') if ('Date', '') in existing_df.columns else 'Date'
-                    new_date_col = ('Date', '') if ('Date', '') in new_wide.columns else 'Date'
-                    
-                    # If column names don't match, rename to match existing
-                    if existing_date_col != new_date_col:
-                        if new_date_col == 'Date':
-                            new_wide = new_wide.rename(columns={'Date': existing_date_col})
-                        elif existing_date_col == 'Date':
-                            existing_df = existing_df.rename(columns={existing_date_col: new_date_col})
-                            existing_date_col = new_date_col
+                    # Ensure both dataframes have the same 'Date' column format
+                    if ('Date', '') in existing_df.columns:
+                        existing_df = existing_df.rename(columns={('Date', ''): 'Date'})
                     
                     # Merge on Date column
-                    staging_df = pd.concat([existing_df, new_wide]).drop_duplicates(subset=[existing_date_col], keep='last').sort_values(existing_date_col)
+                    staging_df = pd.concat([existing_df, new_wide]).drop_duplicates(subset=['Date'], keep='last').sort_values('Date')
                 else:
                     staging_df = new_wide
                 
                 staging_df.to_parquet(staging_file, index=False)
                 logger.info(f"Saved {len(staging_df)} rows to staging file: {staging_file}")
-                date_col = ('Date', '') if ('Date', '') in staging_df.columns else 'Date'
-                if date_col in staging_df.columns:
-                    logger.info(f"Date range: {staging_df[date_col].min()} to {staging_df[date_col].max()}")
+                if 'Date' in staging_df.columns:
+                    logger.info(f"Date range: {staging_df['Date'].min()} to {staging_df['Date'].max()}")
             else:
                 logger.warning("Could not create wide format staging file - missing Date or ticker columns")
             
