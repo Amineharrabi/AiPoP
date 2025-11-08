@@ -31,7 +31,7 @@ REDDIT_USER_AGENT = _clean_env('REDDIT_USER_AGENT') or 'ai-bubble-detector by u/
 SUBREDDITS = [
     'ArtificialInteligence', 'MachineLearning', 'technology', 'stocks',
     'singularity', 'deeplearning', 'neuralnetworks', 'ChatGPT', 'OpenAI',
-    'NVIDIA', 'googleAI', 'microsoftAI', 'anthropic', 'stabilityai'
+    'NVIDIA', 'googleAI', 'microsoftAI', 'anthropic', 'artificial'
 ]
 
 # Fixed paths for new structure

@@ -5,6 +5,11 @@ on:
     - cron: "0 */6 * * *" # Run every 6 hours (more reasonable than 10 min)
   workflow_dispatch: # Allow manual trigger
 
+# Prevent concurrent runs from conflicting
+concurrency:
+  group: data-update
+  cancel-in-progress: false
+
 jobs:
   update-data:
     runs-on: ubuntu-latest
@@ -17,6 +22,7 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0 # Need full history for git operations
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -133,30 +139,72 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Configure git
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
           # Set the remote URL using the built-in GITHUB_TOKEN
-          git remote set-url origin "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+
+          # Stash any untracked changes to avoid conflicts
+          git stash --include-untracked || true
+
+          # Pull latest changes first to avoid conflicts
+          echo "Pulling latest changes from remote..."
+          git pull origin main --rebase || git pull origin main || true
+
+          # Pop stash if it exists
+          git stash pop || true
 
           # Stage database file
           git add data/warehouse/ai_bubble.duckdb
 
           # Also add any new raw/staging files (optional)
-          git add data/raw/ data/staging/ || true
+          git add data/raw/ data/staging/ 2>/dev/null || true
+
+          # Check if there are actually changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit after pulling latest"
+            exit 0
+          fi
 
           # Create commit
           TIMESTAMP=$(date +'%Y-%m-%d %H:%M UTC')
           git commit -m "📊 Data update: $TIMESTAMP" \
                      -m "Updated database with latest data" \
-                     -m "Size: ${{ steps.check-updates.outputs.size }} bytes" || exit 0
+                     -m "Size: ${{ steps.check-updates.outputs.size }} bytes"
 
-          # Push changes with error handling
-          git push origin main || {
-            echo "Push failed, trying to pull and rebase..."
-            git pull --rebase origin main
-            git push origin main
-          }
+          # Push changes with retry logic
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          RETRY_DELAY=10
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            echo "Push attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES..."
+            
+            if git push origin main; then
+              echo "✅ Successfully pushed changes"
+              exit 0
+            fi
+            
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            
+            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+              echo "⚠️ Push failed, waiting ${RETRY_DELAY}s before retry..."
+              sleep $RETRY_DELAY
+              
+              # Pull and rebase before retrying
+              echo "Pulling latest changes..."
+              git pull origin main --rebase || {
+                echo "Rebase failed, trying merge..."
+                git rebase --abort 2>/dev/null || true
+                git pull origin main
+              }
+            fi
+          done
+
+          echo "❌ Failed to push after $MAX_RETRIES attempts"
+          exit 1
 
       - name: Generate summary
         if: always()
@@ -191,7 +239,7 @@ jobs:
           except Exception as e:
               print(f"- **Error getting stats:** {e}")
           EOF
-                    fi
+          fi
 
       - name: Create issue on failure
         if: failure()
@@ -210,12 +258,13 @@ jobs:
             - Network connectivity
             - Database corruption
             - Missing dependencies
+            - Git push conflicts (check for concurrent workflow runs)
                   `;
                   
-                  await github.rest.issues.create({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    title,
-                    body,
-                    labels: ['automated', 'data-update-failed', 'bug']
-                  });
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['automated', 'data-update-failed', 'bug']
+            });
